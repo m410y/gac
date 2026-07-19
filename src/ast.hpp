@@ -6,14 +6,26 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 struct ParseContext {
-  GA::GASpace *Space;
+  ParseContext() : Types(), Space(nullptr) {}
+
   std::map<std::string, GA::Type *, std::less<>> Types;
+  GA::GASpace &getSpace() {
+    if (!Space)
+      throw std::runtime_error("No space in context");
+
+    return *Space;
+  }
+  void setSpace(GA::GASpace *Space) { this->Space = Space; }
+
+private:
+  GA::GASpace *Space;
 };
 
 class Node;
@@ -53,7 +65,7 @@ public:
   GA::Type *getType() const override {
     return GA::Type::get(El->getSpace(), {El->rank()});
   }
-  void print(std::ostream &OS) const override { OS << El; }
+  void print(std::ostream &OS) const override { OS << *El; }
   llvm::Value *codegen(BuildContext &Context) const override;
 };
 
@@ -112,7 +124,7 @@ public:
   static NodePtr create(const TSNodeWrapper &TSN, ParseContext &Context);
   GA::Type *getType() const override { return Type; }
   void print(std::ostream &OS) const override {
-    OS << "<" << Expr << ">" << Type;
+    OS << "<" << Expr << ">" << *Type;
   };
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -223,5 +235,5 @@ class SyntaxTree {
 public:
   SyntaxTree(const TSNodeWrapper &Root);
   friend std::ostream &operator<<(std::ostream &OS, const SyntaxTree &Tree);
-  std::unique_ptr<llvm::Module> codegen() const;
+  void codegen(BuildContext &Context) const;
 };

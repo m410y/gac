@@ -1,13 +1,13 @@
-all: tsgen build run
+all: run
 
 tsgen:
 	cd tree-sitter-ga; tree-sitter generate -o ../src
 
-build:
+build: tsgen
 	cmake -S src -B build
 	make -C build
 
-run:
+run: build
 	build/gac test/test.ga
 
 clean:

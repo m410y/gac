@@ -68,7 +68,7 @@
           "members": [
             {
               "type": "SYMBOL",
-              "name": "int_litearal"
+              "name": "int_literal"
             },
             {
               "type": "REPEAT",
@@ -81,7 +81,7 @@
                   },
                   {
                     "type": "SYMBOL",
-                    "name": "int_litearal"
+                    "name": "int_literal"
                   }
                 ]
               }
@@ -776,7 +776,7 @@
                   "members": [
                     {
                       "type": "SYMBOL",
-                      "name": "int_litearal"
+                      "name": "int_literal"
                     },
                     {
                       "type": "SYMBOL",
@@ -798,7 +798,7 @@
                         "members": [
                           {
                             "type": "SYMBOL",
-                            "name": "int_litearal"
+                            "name": "int_literal"
                           },
                           {
                             "type": "SYMBOL",
@@ -840,7 +840,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "int_litearal"
+          "name": "int_literal"
         },
         {
           "type": "SYMBOL",
@@ -848,7 +848,7 @@
         }
       ]
     },
-    "int_litearal": {
+    "int_literal": {
       "type": "PATTERN",
       "value": "\\d+"
     },

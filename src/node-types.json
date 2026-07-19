@@ -98,7 +98,7 @@
         "named": true
       },
       {
-        "type": "int_litearal",
+        "type": "int_literal",
         "named": true
       }
     ]
@@ -253,7 +253,7 @@
       "required": true,
       "types": [
         {
-          "type": "int_litearal",
+          "type": "int_literal",
           "named": true
         }
       ]
@@ -501,7 +501,7 @@
       "required": false,
       "types": [
         {
-          "type": "int_litearal",
+          "type": "int_literal",
           "named": true
         },
         {
@@ -677,7 +677,7 @@
     "named": false
   },
   {
-    "type": "int_litearal",
+    "type": "int_literal",
     "named": true
   },
   {

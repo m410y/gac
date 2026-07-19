@@ -4,10 +4,11 @@
 #include "ts_node_wrapper.hpp"
 #include <cassert>
 #include <functional>
-#include <iomanip>
 #include <iostream>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/LLVMContext.h>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tree_sitter/api.h>
@@ -20,12 +21,18 @@
 
 NodePtr Literal::create(const TSNodeWrapper &TSN, ParseContext &Context) {
   return std::unique_ptr<Literal>(
-      new Literal(GA::Element::create(*Context.Space, TSN)));
+      new Literal(GA::Element::create(Context.getSpace(), TSN)));
 }
 
 NodePtr Variable::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  std::string name(TSN.string());
-  return std::unique_ptr<Variable>(new Variable(name, Context.Types.at(name)));
+  std::string Name(TSN.string());
+  GA::Type *Type;
+  try {
+    Type = Context.Types.at(Name);
+  } catch (std::out_of_range &e) {
+    throw std::runtime_error("Undefined identifier " + Name);
+  }
+  return std::unique_ptr<Variable>(new Variable(Name, Type));
 }
 
 NodePtr CallExpression::create(const TSNodeWrapper &TSN,
@@ -46,7 +53,7 @@ NodePtr UnaryMinus::create(const TSNodeWrapper &TSN, ParseContext &Context) {
 }
 
 NodePtr Projection::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  GA::Type *Type = GA::Type::get(*Context.Space, TSN.field("ranks"));
+  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("ranks"));
   return std::unique_ptr<Projection>(
       new Projection(Node::create(TSN.child(), Context), Type));
 }
@@ -61,18 +68,15 @@ std::map<std::string, BinaryExpression::BinOp, std::less<>>
 
 NodePtr BinaryExpression::create(const TSNodeWrapper &TSN,
                                  ParseContext &Context) {
-  TSNodeWrapper OpNode = TSN.child();
-  std::string_view type = OpNode.type();
+  std::string_view Type = TSN.type();
 
-  auto OpIt = NodeOp.find(type);
-  if (OpIt == NodeOp.end()) {
-    std::cerr << "unknown binary operator " << std::quoted(type) << "\n";
-    return nullptr;
-  }
+  auto OpIt = NodeOp.find(Type);
+  if (OpIt == NodeOp.end())
+    throw std::runtime_error("Unknown binary operator " + std::string(Type));
 
   return std::unique_ptr<BinaryExpression>(
-      new BinaryExpression(OpIt->second, Node::create(OpNode.child(0), Context),
-                           Node::create(OpNode.child(1), Context)));
+      new BinaryExpression(OpIt->second, Node::create(TSN.child(0), Context),
+                           Node::create(TSN.child(1), Context)));
 }
 
 //=============================================================================
@@ -81,24 +85,23 @@ NodePtr BinaryExpression::create(const TSNodeWrapper &TSN,
 
 NodePtr VariableDeclaration::create(const TSNodeWrapper &TSN,
                                     ParseContext &Context) {
-  GA::Type *Type = GA::Type::get(*Context.Space, TSN.field("type"));
+  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("type"));
   TSNodeWrapper VarNode = TSN.field("name");
-  std::string name(VarNode.string());
-  auto TypesIt = Context.Types.find(name);
-  if (TypesIt != Context.Types.end()) {
-    std::cerr << "Redefinition of " << name << "\n";
-    return nullptr;
-  }
-  Context.Types.insert({name, Type});
+  std::string Name(VarNode.string());
+  auto TypesIt = Context.Types.find(Name);
+  if (TypesIt != Context.Types.end())
+    throw std::runtime_error("Redefinition of variable " + Name);
+
+  Context.Types.insert({Name, Type});
   return std::unique_ptr<VariableDeclaration>(
-      new VariableDeclaration(Variable::create(VarNode, Context)));
+      new VariableDeclaration(Node::create(VarNode, Context)));
 }
 
 NodePtr VariableDefinition::create(const TSNodeWrapper &TSN,
                                    ParseContext &Context) {
-  return std::unique_ptr<VariableDefinition>(new VariableDefinition(
-      VariableDeclaration::create(TSN.field("decl"), Context),
-      Node::create(TSN.field("expr"), Context)));
+  return std::unique_ptr<VariableDefinition>(
+      new VariableDefinition(Node::create(TSN.field("decl"), Context),
+                             Node::create(TSN.field("expr"), Context)));
 }
 
 NodePtr ReturnStatement::create(const TSNodeWrapper &TSN,
@@ -115,25 +118,24 @@ NodePtr UsingStatement::create(const TSNodeWrapper &TSN,
                                ParseContext &Context) {
   std::unique_ptr<UsingStatement> NewSpace(
       new UsingStatement(GA::GASpace(TSN.child())));
-  Context.Space = &NewSpace->Space;
+  Context.setSpace(&NewSpace->Space);
   return std::move(NewSpace);
 }
 
 NodePtr FunctionDefinition::create(const TSNodeWrapper &TSN,
                                    ParseContext &Context) {
   std::string Name(TSN.field("name").string());
-  GA::Type *Type = GA::Type::get(*Context.Space, TSN.field("type"));
+  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("type"));
 
   auto TypesIt = Context.Types.find(Name);
-  if (TypesIt != Context.Types.end()) {
-    std::cerr << "Redefinition of " << Name << "\n";
-    return nullptr;
-  }
+  if (TypesIt != Context.Types.end())
+    throw std::runtime_error("Redefinition of variable " + Name);
+
   Context.Types.insert({Name, Type});
 
   std::vector<NodePtr> Params;
   for (auto &variable_decl : TSN.field("params").children())
-    Params.push_back(VariableDeclaration::create(variable_decl, Context));
+    Params.push_back(Node::create(variable_decl, Context));
 
   std::vector<NodePtr> Body;
   for (auto &statement : TSN.field("body").children())
@@ -161,7 +163,9 @@ static const std::map<
     std::string, std::function<NodePtr(const TSNodeWrapper &, ParseContext &)>,
     std::less<>>
     Constructors = {
-        {"literal", Literal::create},
+        {"int_literal", Literal::create},
+        {"float_literal", Literal::create},
+        {"basis_literal", Literal::create},
         {"identifier", Variable::create},
         {"parenthesized_expression", trivial_node},
         {"call_expression", CallExpression::create},
@@ -169,10 +173,10 @@ static const std::map<
         {"unary_minus", UnaryMinus::create},
         {"projection", Projection::create},
         {"assignment", BinaryExpression::create},
-        {"binary_plus,", BinaryExpression::create},
+        {"binary_plus", BinaryExpression::create},
         {"binary_minus", BinaryExpression::create},
         {"geometric_product", BinaryExpression::create},
-        {"wedge_product,", BinaryExpression::create},
+        {"wedge_product", BinaryExpression::create},
         {"vee_product", BinaryExpression::create},
         {"dot_product", BinaryExpression::create},
         {"scalar_product", BinaryExpression::create},
@@ -186,10 +190,8 @@ static const std::map<
 NodePtr Node::create(const TSNodeWrapper &TSN, ParseContext &Context) {
   std::string_view Type = TSN.type();
   auto ConstructIt = Constructors.find(Type);
-  if (ConstructIt == Constructors.end()) {
-    std::cerr << "unknown type " << std::quoted(Type) << "\n";
-    return nullptr;
-  }
+  if (ConstructIt == Constructors.end())
+    throw std::runtime_error("Unknown node name " + std::string(Type));
 
   return ConstructIt->second(TSN, Context);
 }
@@ -216,13 +218,13 @@ void VariableDeclaration::print(std::ostream &OS) const {
     return;
 
   GA::Type *Type = dynamic_cast<Variable *>(Var.get())->getType();
-  OS << Type << " " << Var;
+  OS << *Type << " " << Var;
 };
 
 void FunctionDefinition::print(std::ostream &OS) const {
   OS << "function " << Name;
   printSeparated(OS, Params, " (", ", ", ")");
-  OS << " -> " << Type;
+  OS << " -> " << *Type;
   printSeparated(OS, Body, "\n  ", "\n  ", "\nend\n");
 }
 
@@ -245,7 +247,8 @@ GA::Type *BinaryExpression::getType() const {
   switch (Op) {
   case assign:
     if (LType->getRanks() != RType->getRanks())
-      std::cerr << "Left and Right expressions have different types\n";
+      throw std::runtime_error(
+          "Left and Right expressions have different types");
 
     return LType;
   case plus:

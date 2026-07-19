@@ -1,9 +1,11 @@
+#include "codegen.hpp"
 #include "ast.hpp"
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -80,27 +82,22 @@ void ReturnStatement::codegen(BuildContext &context) const {
 // Top-level statements
 //=============================================================================
 
-void UsingStatement::codegen(BuildContext &context) const {
-  // Type *Double = Type::getDoubleTy(Context);
-  // for (size_t i = 0; i <= ssign.dim(); i++) {
-  //   GA::Type type(i, ssign);
-  //   std::ostringstream name;
-  //   type.print(name);
-  //   ArrayType *Data = ArrayType::get(Double, type.dof());
-  //   StructType *NewType = StructType::create(Context, name.str());
-  //   NewType->setBody({Data});
-  //   context.types[type] = NewType;
-  // }
+void UsingStatement::codegen(BuildContext &Context) const {
+  // Type *Double = Type::getDoubleTy(Context.LLVM);
 }
 
-void FunctionDefinition::codegen(BuildContext &context) const {
+void FunctionDefinition::codegen(BuildContext &Context) const {
   // std::vector<Type *> argtypes;
-  // for (const auto &var : params)
-  //   argtypes.push_back(context.types[var.getType()]);
+  // for (const auto &Decl : Params) {
+  //   dynamic_cast<VariableDeclaration *>(Decl.get());
+  //   argtypes.push_back(Context.Types[var->getType()]);
+  // }
   //
-  // Function *Func = Function::Create(
-  //     FunctionType::get(context.types[rettype], argtypes, false),
-  //     Function::ExternalLinkage, name, context.module.get());
+  // Function *Func =
+  //     Function::Create(FunctionType::get(Context.Types[Type], argtypes,
+  //     false),
+  //                      Function::ExternalLinkage, Name,
+  //                      Context.Module.get());
   //
   // BasicBlock *Entry = BasicBlock::Create(Context, "entry", Func);
   // context.builder->SetInsertPoint(Entry);
@@ -123,12 +120,19 @@ void FunctionDefinition::codegen(BuildContext &context) const {
 // Syntax tree
 //=============================================================================
 
-std::unique_ptr<Module> SyntaxTree::codegen() const {
-  BuildContext Context;
+void SyntaxTree::codegen(BuildContext &Context) const {
   for (const auto &Node : Statements) {
     auto *TopLevelStatement = dynamic_cast<Statement *>(Node.get());
     TopLevelStatement->codegen(Context);
   }
+}
 
+//=============================================================================
+// IRCompiler
+//=============================================================================
+
+std::unique_ptr<llvm::Module> IRCompiler::codegen(const SyntaxTree &AST) {
+  BuildContext Context(LLVMCtx);
+  AST.codegen(Context);
   return std::move(Context.Module);
 }

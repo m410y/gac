@@ -4,11 +4,11 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <stdexcept>
 #include <string_view>
 
 constexpr size_t binomial(int n, int k) {
@@ -28,7 +28,8 @@ constexpr size_t binomial(int n, int k) {
 using namespace GA;
 
 Type *Type::get(GASpace &Space, const RankSet &Ranks) {
-  Space.Types.insert({Ranks, std::unique_ptr<Type>(new Type(Space, Ranks))});
+  std::unique_ptr<Type> NewType(new Type(Space, Ranks));
+  Space.Types.insert({Ranks, std::move(NewType)});
   return Space.Types[Ranks].get();
 }
 
@@ -45,8 +46,12 @@ Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
                          double Mul) {
   std::vector<bool> BVec(Space.dim());
 
-  for (size_t i : Indices)
+  for (size_t i : Indices) {
+    if (i >= BVec.size())
+      throw std::runtime_error("Basis index is out of range");
+
     BVec[i].flip();
+  }
 
   auto Perm = Indices;
   // bubble sort
@@ -101,7 +106,7 @@ void Type::print(std::ostream &OS) const {
 void Element::print(std::ostream &OS) const {
   OS << Val;
 
-  if (rank())
+  if (rank() == 0)
     return;
 
   OS << "e";
@@ -129,7 +134,8 @@ Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
 
   RankSet Ranks;
   for (const auto &Child : TSN.children())
-    Ranks.merge(get(Space, Child)->Ranks);
+    for (RankTy Rank : get(Space, Child)->Ranks)
+      Ranks.insert(Rank);
 
   return get(Space, Ranks);
 }
@@ -182,5 +188,5 @@ GASpace::GASpace(const TSNodeWrapper &TSN) {
     for (const auto &Child : TSN.children())
       Sign.push_back(Child.parse<double>());
   } else
-    std::cerr << "Unknown metric " << std::quoted(Type) << "\n";
+    throw std::runtime_error("Unknown metric " + std::string(Type));
 }

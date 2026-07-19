@@ -2,6 +2,7 @@
 
 #include "ts_node_wrapper.hpp"
 #include <functional>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -21,8 +22,6 @@ class Type {
 
   explicit Type(GASpace &Space, const RankSet &Ranks)
       : Space(Space), Ranks(Ranks) {};
-  explicit Type(GASpace &Space, RankSet &&Ranks)
-      : Space(Space), Ranks(Ranks) {};
 
 public:
   static Type *get(GASpace &Space, const RankSet &Ranks);
@@ -40,8 +39,6 @@ class Element {
   double Val;
 
   explicit Element(GASpace &Space, const std::vector<bool> &BVec, double Val)
-      : Space(Space), BVec(BVec), Val(Val) {};
-  explicit Element(GASpace &Space, std::vector<bool> &&BVec, double Val)
       : Space(Space), BVec(BVec), Val(Val) {};
 
 public:
@@ -66,6 +63,7 @@ class GASpace {
   friend class Element;
 
 public:
+  GASpace() = default;
   GASpace(const GASpace &) = delete;
   GASpace &operator=(const GASpace &) = delete;
 
