@@ -208,11 +208,11 @@
           "named": true
         },
         {
-          "type": "variable_definition",
+          "type": "variable_declaration",
           "named": true
         },
         {
-          "type": "variable_delaration",
+          "type": "variable_definition",
           "named": true
         }
       ]
@@ -369,7 +369,7 @@
       "required": false,
       "types": [
         {
-          "type": "variable_delaration",
+          "type": "variable_declaration",
           "named": true
         }
       ]
@@ -535,33 +535,7 @@
     }
   },
   {
-    "type": "variable_definition",
-    "named": true,
-    "fields": {
-      "decl": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "variable_delaration",
-            "named": true
-          }
-        ]
-      },
-      "expr": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "expression",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "variable_delaration",
+    "type": "variable_declaration",
     "named": true,
     "fields": {
       "name": {
@@ -580,6 +554,32 @@
         "types": [
           {
             "type": "type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "variable_definition",
+    "named": true,
+    "fields": {
+      "decl": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "variable_declaration",
+            "named": true
+          }
+        ]
+      },
+      "expr": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]

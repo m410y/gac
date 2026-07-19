@@ -192,7 +192,7 @@
               "members": [
                 {
                   "type": "SYMBOL",
-                  "name": "variable_delaration"
+                  "name": "variable_declaration"
                 },
                 {
                   "type": "REPEAT",
@@ -205,7 +205,7 @@
                       },
                       {
                         "type": "SYMBOL",
-                        "name": "variable_delaration"
+                        "name": "variable_declaration"
                       }
                     ]
                   }
@@ -250,7 +250,7 @@
                           },
                           {
                             "type": "SYMBOL",
-                            "name": "variable_delaration"
+                            "name": "variable_declaration"
                           },
                           {
                             "type": "SYMBOL",
@@ -290,7 +290,7 @@
           "name": "decl",
           "content": {
             "type": "SYMBOL",
-            "name": "variable_delaration"
+            "name": "variable_declaration"
           }
         },
         {
@@ -307,7 +307,7 @@
         }
       ]
     },
-    "variable_delaration": {
+    "variable_declaration": {
       "type": "SEQ",
       "members": [
         {

@@ -4,18 +4,12 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <numeric>
 #include <ostream>
 #include <string_view>
-
-using namespace GA;
-
-Type *Type::get(GASpace &Space, const RankSet &Ranks) {
-  Space.Types.insert({Ranks, std::unique_ptr<Type>(new Type(Space, Ranks))});
-  return Space.Types[Ranks].get();
-}
 
 constexpr size_t binomial(int n, int k) {
   if (k < 0 || n < k)
@@ -31,6 +25,13 @@ constexpr size_t binomial(int n, int k) {
   return res;
 }
 
+using namespace GA;
+
+Type *Type::get(GASpace &Space, const RankSet &Ranks) {
+  Space.Types.insert({Ranks, std::unique_ptr<Type>(new Type(Space, Ranks))});
+  return Space.Types[Ranks].get();
+}
+
 size_t Type::dof() const {
   size_t res = 0;
   size_t dim = Space.dim();
@@ -38,25 +39,6 @@ size_t Type::dof() const {
     res += binomial(dim, Rank);
 
   return res;
-}
-
-void Type::print(std::ostream &OS) const {
-  printSeparated(OS, Ranks, "{", ",", "}");
-}
-
-Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
-  if (TSN.type() == "int_literal")
-    return Type::get(Space, {TSN.parse<RankTy>()});
-
-  auto AliasIt = Space.TypeAliases.find(TSN.string());
-  if (AliasIt != Space.TypeAliases.end())
-    return AliasIt->second;
-
-  RankSet Ranks;
-  for (const auto &Child : TSN.children())
-    Ranks.merge(get(Space, Child)->Ranks);
-
-  return get(Space, Ranks);
 }
 
 Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
@@ -87,36 +69,6 @@ Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
   return Space.Elements.back().get();
 }
 
-void Element::print(std::ostream &OS) const {
-  OS << Val;
-
-  if (std::all_of(BVec.begin(), BVec.end(), [](bool b) { return !b; }))
-    return;
-
-  OS << "e";
-  for (size_t i = 0; i < BVec.size(); i++) {
-    if (BVec[i])
-      OS << static_cast<int>(i);
-  }
-}
-
-Element *Element::create(GASpace &Space, const TSNodeWrapper &TSN) {
-  std::string_view Str = TSN.string();
-
-  if (Str.front() == 'e') {
-    Str.remove_prefix(1);
-    std::vector<size_t> Indices;
-    for (char c : Str)
-      Indices.push_back(c - '0');
-
-    return Element::create(Space, Indices);
-  }
-
-  double mul;
-  std::from_chars(Str.data(), Str.data() + Str.size(), mul);
-  return Element::create(Space, {}, mul);
-}
-
 RankTy Element::rank() const {
   return std::accumulate(BVec.begin(), BVec.end(), RankTy(0));
 }
@@ -136,6 +88,67 @@ size_t Element::id() const {
       res += binomial(n - i - 1, k - 1);
   }
   return res;
+}
+
+//=============================================================================
+// Printing
+//=============================================================================
+
+void Type::print(std::ostream &OS) const {
+  printSeparated(OS, Ranks, "{", ",", "}");
+}
+
+void Element::print(std::ostream &OS) const {
+  OS << Val;
+
+  if (rank())
+    return;
+
+  OS << "e";
+  for (size_t i = 0; i < BVec.size(); i++) {
+    if (BVec[i])
+      OS << static_cast<int>(i);
+  }
+}
+
+void GASpace::print(std::ostream &OS) const {
+  printSeparated(OS, Sign, "{", ",", "}");
+}
+
+//=============================================================================
+// Constructors from tree-sitter
+//=============================================================================
+
+Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
+  if (TSN.type() == "int_literal")
+    return Type::get(Space, {TSN.parse<RankTy>()});
+
+  auto AliasIt = Space.TypeAliases.find(TSN.string());
+  if (AliasIt != Space.TypeAliases.end())
+    return AliasIt->second;
+
+  RankSet Ranks;
+  for (const auto &Child : TSN.children())
+    Ranks.merge(get(Space, Child)->Ranks);
+
+  return get(Space, Ranks);
+}
+
+Element *Element::create(GASpace &Space, const TSNodeWrapper &TSN) {
+  std::string_view Str = TSN.string();
+
+  if (Str.front() == 'e') {
+    Str.remove_prefix(1);
+    std::vector<size_t> Indices;
+    for (char c : Str)
+      Indices.push_back(c - '0');
+
+    return Element::create(Space, Indices);
+  }
+
+  double mul;
+  std::from_chars(Str.data(), Str.data() + Str.size(), mul);
+  return Element::create(Space, {}, mul);
 }
 
 GASpace::GASpace(const TSNodeWrapper &TSN) {
@@ -168,9 +181,6 @@ GASpace::GASpace(const TSNodeWrapper &TSN) {
   } else if (Type == "general_metric") {
     for (const auto &Child : TSN.children())
       Sign.push_back(Child.parse<double>());
-  }
-}
-
-void GASpace::print(std::ostream &OS) const {
-  printSeparated(OS, Sign, "{", ",", "}");
+  } else
+    std::cerr << "Unknown metric " << std::quoted(Type) << "\n";
 }

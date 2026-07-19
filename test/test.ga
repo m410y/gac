@@ -1,5 +1,6 @@
-using space <3>
+using <3>
 
-function foo () -> {1}
+function foo ({1} a) -> {1}
+  reuturn a
 end
 

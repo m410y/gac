@@ -114,7 +114,7 @@ NodePtr ReturnStatement::create(const TSNodeWrapper &TSN,
 NodePtr UsingStatement::create(const TSNodeWrapper &TSN,
                                ParseContext &Context) {
   std::unique_ptr<UsingStatement> NewSpace(
-      new UsingStatement(GA::GASpace(TSN)));
+      new UsingStatement(GA::GASpace(TSN.child())));
   Context.Space = &NewSpace->Space;
   return std::move(NewSpace);
 }
