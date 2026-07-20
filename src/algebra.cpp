@@ -1,15 +1,7 @@
 #include "algebra.hpp"
-#include "iohelper.hpp"
 #include "ts_node_wrapper.hpp"
-#include <algorithm>
 #include <array>
-#include <charconv>
-#include <iostream>
-#include <memory>
-#include <numeric>
-#include <ostream>
-#include <stdexcept>
-#include <string_view>
+#include <sstream>
 
 constexpr size_t binomial(int n, int k) {
   if (k < 0 || n < k)
@@ -53,7 +45,7 @@ Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
     BVec[i].flip();
   }
 
-  auto Perm = Indices;
+  std::vector<size_t> Perm = Indices;
   // bubble sort
   for (size_t i = 0; i < Perm.size(); i++)
     for (size_t j = 1; i + j < Perm.size(); j++) {
@@ -75,7 +67,11 @@ Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
 }
 
 RankTy Element::rank() const {
-  return std::accumulate(BVec.begin(), BVec.end(), RankTy(0));
+  RankTy acc = 0;
+  for (auto bit : BVec)
+    acc += bit;
+
+  return acc;
 }
 
 size_t Element::id() const {
@@ -99,8 +95,52 @@ size_t Element::id() const {
 // Printing
 //=============================================================================
 
+static std::ostream &operator<<(std::ostream &OS, const GA::GASpace &Space) {
+  Space.print(OS);
+  return OS;
+}
+
+static std::ostream &operator<<(std::ostream &OS, const GA::Type &Type) {
+  Type.print(OS);
+  return OS;
+}
+
+static std::ostream &operator<<(std::ostream &OS, const GA::Element &Element) {
+  Element.print(OS);
+  return OS;
+}
+
+#include "iohelper.hpp"
+
+std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
+  if (!Type)
+    throw std::runtime_error("Attempt to dereference nullptr Type");
+
+  return OS << *Type;
+}
+
+std::ostream &operator<<(std::ostream &OS, GA::Element *Element) {
+  if (!Element)
+    throw std::runtime_error("Attempt to dereference nullptr Element");
+
+  return OS << *Element;
+}
+
+std::ostream &operator<<(std::ostream &OS, GA::GASpace *Space) {
+  if (!Space)
+    throw std::runtime_error("Attempt to dereference nullptr Element");
+
+  return OS << *Space;
+}
+
 void Type::print(std::ostream &OS) const {
   printSeparated(OS, Ranks, "{", ",", "}");
+}
+
+std::string Type::getName() const {
+  std::ostringstream OSS;
+  print(OSS);
+  return OSS.str();
 }
 
 void Element::print(std::ostream &OS) const {
@@ -118,20 +158,6 @@ void Element::print(std::ostream &OS) const {
 
 void GASpace::print(std::ostream &OS) const {
   printSeparated(OS, Sign, "{", ",", "}");
-}
-
-std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
-  if (!Type)
-    throw std::runtime_error("Attempt to dereference nullptr Type");
-
-  return OS << *Type;
-}
-
-std::ostream &operator<<(std::ostream &OS, GA::Element *Element) {
-  if (!Element)
-    throw std::runtime_error("Attempt to dereference nullptr Element");
-
-  return OS << *Element;
 }
 
 //=============================================================================
@@ -172,19 +198,19 @@ Element *Element::create(GASpace &Space, const TSNodeWrapper &TSN) {
 }
 
 GASpace::GASpace(const TSNodeWrapper &TSN) {
-  const std::array DefaultSign = {1.0, -1.0, 0.0};
+  std::array DefaultSigns = {1.0, -1.0, 0.0};
   std::string_view Type = TSN.type();
   if (Type == "simple_metric") {
     for (char c : TSN.str()) {
       switch (c) {
       case '+':
-        Sign.push_back(DefaultSign[0]);
+        Sign.push_back(DefaultSigns.at(0));
         break;
       case '-':
-        Sign.push_back(DefaultSign[1]);
+        Sign.push_back(DefaultSigns.at(1));
         break;
       case '0':
-        Sign.push_back(DefaultSign[2]);
+        Sign.push_back(DefaultSigns.at(2));
         break;
       }
     }
@@ -193,9 +219,9 @@ GASpace::GASpace(const TSNodeWrapper &TSN) {
     for (const auto &Child : TSN.children()) {
       size_t n = Child.parse<size_t>();
       for (size_t j = 0; j < n; j++)
-        Sign.push_back(DefaultSign[i]);
+        Sign.push_back(DefaultSigns[i]);
 
-      if (++i > DefaultSign.size())
+      if (++i > DefaultSigns.size())
         break;
     }
   } else if (Type == "general_metric") {

@@ -1,9 +1,6 @@
 #include "ast.hpp"
-#include "algebra.hpp"
-#include "iohelper.hpp"
 #include "ts_node_wrapper.hpp"
-#include <cstdlib>
-#include <utility>
+#include <ostream>
 
 bool FuncProto::operator==(const FuncProto &Right) const {
   if (Params.size() != Right.Params.size())
@@ -93,101 +90,93 @@ static std::vector<FuncProto::Param> getParamList(const TSNodeWrapper &TSN,
 // Expressions
 //=============================================================================
 
-GA::Type *Expression::getType(const NodePtr &Node) {
-  const Expression *Expr = dynamic_cast<const Expression *>(Node.get());
-  if (!Expr)
-    throw std::runtime_error("Invalid expression pointer");
-
-  return Expr->getType();
+NodePtr Literal::createNode(const TSNodeWrapper &TSN, ParseContext &Context) {
+  return std::make_unique<Literal>(
+      GA::Element::create(Context.getSpace(), TSN));
 }
 
-NodePtr Literal::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  return std::unique_ptr<Literal>(
-      new Literal(GA::Element::create(Context.getSpace(), TSN)));
-}
-
-NodePtr Variable::create(const TSNodeWrapper &TSN, ParseContext &Context) {
+NodePtr Variable::createNode(const TSNodeWrapper &TSN, ParseContext &Context) {
   std::string_view Name = TSN.str();
   GA::Type *Type = Context.getVarType(Name);
-  return std::unique_ptr<Variable>(new Variable(Name, Type));
+  return std::make_unique<Variable>(Name, Type);
 }
 
-NodePtr CallExpression::create(const TSNodeWrapper &TSN,
-                               ParseContext &Context) {
+NodePtr CallExpression::createNode(const TSNodeWrapper &TSN,
+                                   ParseContext &Context) {
   std::string_view Name = TSN.field("name").str();
   FuncPtr Proto = Context.getFunc(Name);
 
   std::vector<NodePtr> Args;
   for (const auto &Arg : TSN.field("args").children())
-    Args.push_back(Node::create(Arg, Context));
+    Args.push_back(create<Node>(Arg, Context));
 
-  return std::unique_ptr<CallExpression>(
-      new CallExpression(Proto, std::move(Args)));
+  return std::make_unique<CallExpression>(Proto, std::move(Args));
 }
 
-NodePtr UnaryMinus::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  NodePtr Expr = Node::create(TSN.child(), Context);
-  return std::unique_ptr<UnaryMinus>(new UnaryMinus(std::move(Expr)));
+NodePtr UnaryMinus::createNode(const TSNodeWrapper &TSN,
+                               ParseContext &Context) {
+  ExprPtr Expr = create<Expression>(TSN.child(), Context);
+  return std::make_unique<UnaryMinus>(std::move(Expr));
 }
 
-NodePtr Projection::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  NodePtr Expr = Node::create(TSN.child(), Context);
+NodePtr Projection::createNode(const TSNodeWrapper &TSN,
+                               ParseContext &Context) {
+  ExprPtr Expr = create<Expression>(TSN.child(), Context);
   GA::Type *Type = getNodeType(TSN, Context);
-  return std::unique_ptr<Projection>(new Projection(std::move(Expr), Type));
+  return std::make_unique<Projection>(std::move(Expr), Type);
 }
 
 //=============================================================================
 // Local scope statements
 //=============================================================================
 
-NodePtr VariableDeclaration::create(const TSNodeWrapper &TSN,
-                                    ParseContext &Context) {
+NodePtr VariableDeclaration::createNode(const TSNodeWrapper &TSN,
+                                        ParseContext &Context) {
   GA::Type *Type = getNodeType(TSN, Context);
   TSNodeWrapper VarNode = TSN.field("name");
   Context.setVarType(VarNode.str(), Type);
+  std::unique_ptr<Variable> Var = create<Variable>(VarNode, Context);
 
-  return std::unique_ptr<VariableDeclaration>(
-      new VariableDeclaration(Node::create(VarNode, Context)));
+  return std::make_unique<VariableDeclaration>(std::move(Var));
 }
 
-NodePtr VariableDefinition::create(const TSNodeWrapper &TSN,
-                                   ParseContext &Context) {
-  NodePtr Decl = Node::create(TSN.field("decl"), Context);
-  NodePtr Expr = Node::create(TSN.field("expr"), Context);
-  return std::unique_ptr<VariableDefinition>(
-      new VariableDefinition(std::move(Decl), std::move(Expr)));
+NodePtr VariableDefinition::createNode(const TSNodeWrapper &TSN,
+                                       ParseContext &Context) {
+  std::unique_ptr<Variable> Var = create<Variable>(TSN.field("decl"), Context);
+  ExprPtr Expr = create<Expression>(TSN.field("expr"), Context);
+  return std::make_unique<VariableDefinition>(std::move(Var), std::move(Expr));
 }
 
-NodePtr ReturnStatement::create(const TSNodeWrapper &TSN,
-                                ParseContext &Context) {
-  NodePtr Expr = Node::create(TSN.child(), Context);
-  return std::unique_ptr<ReturnStatement>(new ReturnStatement(std::move(Expr)));
+NodePtr ReturnStatement::createNode(const TSNodeWrapper &TSN,
+                                    ParseContext &Context) {
+  ExprPtr Expr = create<Expression>(TSN.child(), Context);
+  return std::make_unique<ReturnStatement>(std::move(Expr));
 }
 
 //=============================================================================
 // Top-level statements
 //=============================================================================
 
-NodePtr UsingStatement::create(const TSNodeWrapper &TSN,
-                               ParseContext &Context) {
-  GA::GASpace Space(TSN.child());
-  std::unique_ptr<UsingStatement> NewNode(new UsingStatement(std::move(Space)));
-  Context.setSpace(&NewNode->Space);
-  return std::move(NewNode);
+NodePtr UsingStatement::createNode(const TSNodeWrapper &TSN,
+                                   ParseContext &Context) {
+  std::unique_ptr<GA::GASpace> Space =
+      std::make_unique<GA::GASpace>(TSN.child());
+  Context.setSpace(Space.get());
+  return std::make_unique<UsingStatement>(std::move(Space));
 }
 
-NodePtr FunctionDeclaration::create(const TSNodeWrapper &TSN,
-                                    ParseContext &Context) {
+NodePtr FunctionDeclaration::createNode(const TSNodeWrapper &TSN,
+                                        ParseContext &Context) {
   std::string_view Name = TSN.field("name").str();
   GA::Type *RetType = getNodeType(TSN, Context);
   auto Params = getParamList(TSN, Context);
 
   FuncPtr Proto = Context.declareFunc(Name, RetType, Params);
-  return std::unique_ptr<FunctionDeclaration>(new FunctionDeclaration(Proto));
+  return std::make_unique<FunctionDeclaration>(Proto);
 }
 
-NodePtr FunctionDefinition::create(const TSNodeWrapper &TSN,
-                                   ParseContext &Context) {
+NodePtr FunctionDefinition::createNode(const TSNodeWrapper &TSN,
+                                       ParseContext &Context) {
   std::string_view Name = TSN.field("name").str();
   GA::Type *RetType = getNodeType(TSN, Context);
   auto Params = getParamList(TSN, Context);
@@ -200,10 +189,10 @@ NodePtr FunctionDefinition::create(const TSNodeWrapper &TSN,
 
   std::vector<NodePtr> Body;
   for (auto &statement : TSN.field("body").children())
-    Body.push_back(Node::create(statement, Context));
+    Body.push_back(create<Node>(statement, Context));
 
-  return std::unique_ptr<FunctionDefinition>(
-      new FunctionDefinition(Proto, std::move(Body)));
+  Context.clearVars();
+  return std::make_unique<FunctionDefinition>(Proto, std::move(Body));
 }
 
 //=============================================================================
@@ -213,42 +202,50 @@ NodePtr FunctionDefinition::create(const TSNodeWrapper &TSN,
 SyntaxTree::SyntaxTree(const TSNodeWrapper &root) {
   ParseContext Context;
   for (auto &top_level_statement : root.children())
-    Statements.push_back(Node::create(top_level_statement, Context));
+    Statements.push_back(create<Node>(top_level_statement, Context));
 }
 
-static NodePtr trivial_node(const TSNodeWrapper &TSN, ParseContext &Context) {
-  return Node::create(TSN.child(), Context);
+static NodePtr trivialNode(const TSNodeWrapper &TSN, ParseContext &Context) {
+  return create<Node>(TSN.child(), Context);
 }
 
-static const std::map<std::string,
-                      NodePtr (*)(const TSNodeWrapper &, ParseContext &),
-                      std::less<>>
+static std::map<std::string, NodePtr (*)(const TSNodeWrapper &, ParseContext &),
+                std::less<>>
     Constructors = {
-        {"int_literal", Literal::create},
-        {"float_literal", Literal::create},
-        {"basis_literal", Literal::create},
-        {"identifier", Variable::create},
-        {"parenthesized_expression", trivial_node},
-        {"call_expression", CallExpression::create},
-        {"unary_plus", trivial_node},
-        {"unary_minus", UnaryMinus::create},
-        {"projection", Projection::create},
-        {"assignment", BinaryExpression<assign>::create},
-        {"binary_plus", BinaryExpression<plus>::create},
-        {"binary_minus", BinaryExpression<minus>::create},
-        {"geometric_product", BinaryExpression<geom>::create},
-        {"wedge_product", BinaryExpression<wedge>::create},
-        {"vee_product", BinaryExpression<vee>::create},
-        {"dot_product", BinaryExpression<dot>::create},
-        {"scalar_product", BinaryExpression<scalar>::create},
-        {"variable_declaration", VariableDeclaration::create},
-        {"variable_definition", VariableDefinition::create},
-        {"return_statement", ReturnStatement::create},
-        {"using_statement", UsingStatement::create},
-        {"function_definition", FunctionDefinition::create},
+        {"int_literal", Literal::createNode},
+        {"float_literal", Literal::createNode},
+        {"basis_literal", Literal::createNode},
+        {"identifier", Variable::createNode},
+        {"parenthesized_expression", trivialNode},
+        {"call_expression", CallExpression::createNode},
+        {"unary_plus", trivialNode},
+        {"unary_minus", UnaryMinus::createNode},
+        {"projection", Projection::createNode},
+        {"assignment", BinaryExpression<assign>::createNode},
+        {"binary_plus", BinaryExpression<plus>::createNode},
+        {"binary_minus", BinaryExpression<minus>::createNode},
+        {"geometric_product", BinaryExpression<geom>::createNode},
+        {"wedge_product", BinaryExpression<wedge>::createNode},
+        {"vee_product", BinaryExpression<vee>::createNode},
+        {"dot_product", BinaryExpression<dot>::createNode},
+        {"scalar_product", BinaryExpression<scalar>::createNode},
+        {"variable_declaration", VariableDeclaration::createNode},
+        {"variable_definition", VariableDefinition::createNode},
+        {"return_statement", ReturnStatement::createNode},
+        {"using_statement", UsingStatement::createNode},
+        {"function_definition", FunctionDefinition::createNode},
 };
 
-NodePtr Node::create(const TSNodeWrapper &TSN, ParseContext &Context) {
+template <class T>
+std::unique_ptr<T> create(const TSNodeWrapper &TSN, ParseContext &Context) {
+  NodePtr NewNode = create<Node>(TSN, Context);
+  Node *RawNode = NewNode.release();
+  T *RawExpr = dynamic_cast<T *>(RawNode);
+  return std::unique_ptr<T>(RawExpr);
+}
+
+template <>
+NodePtr create<Node>(const TSNodeWrapper &TSN, ParseContext &Context) {
   std::string_view Type = TSN.type();
   auto ConstructIt = Constructors.find(Type);
   if (ConstructIt == Constructors.end())
@@ -261,6 +258,48 @@ NodePtr Node::create(const TSNodeWrapper &TSN, ParseContext &Context) {
 // Printing
 //=============================================================================
 
+static std::ostream &operator<<(std::ostream &OS, const NodePtr &NPtr) {
+  if (NPtr)
+    NPtr->print(OS);
+
+  return OS;
+}
+
+static std::ostream &operator<<(std::ostream &OS, Node *NPtr) {
+  if (NPtr)
+    NPtr->print(OS);
+
+  return OS;
+}
+
+static std::ostream &operator<<(std::ostream &OS,
+                                const FuncProto::Param &Param) {
+  if (Param.second.has_value()) {
+    OS << Param.first << " " << Param.second.value();
+  } else {
+    OS << Param.first;
+  }
+  return OS;
+}
+
+static std::ostream &operator<<(std::ostream &OS, FuncPtr Proto) {
+  if (!Proto)
+    throw std::runtime_error("Attemt to acceess nullptr FuncProto");
+
+  Proto->print(OS);
+  return OS;
+}
+
+#include "iohelper.hpp"
+
+void Literal::print(std::ostream &OS) const { OS << El; }
+
+void UnaryMinus::print(std::ostream &OS) const { OS << "-" << Expr.get(); };
+
+void Projection::print(std::ostream &OS) const {
+  OS << "<" << Expr.get() << ">" << Type;
+};
+
 void CallExpression::print(std::ostream &OS) const {
   printSeparated(OS, Args, "(", ", ", ")");
 }
@@ -270,7 +309,7 @@ static std::map<BinOp, const char *> OpStrings = {
     {wedge, "w"},  {vee, "v"},  {scalar, "*"}};
 
 template <BinOp Op> void BinaryExpression<Op>::print(std::ostream &OS) const {
-  OS << '(' << Left << ' ';
+  OS << '(' << Left.get() << ' ';
 
   if (OpStrings.count(Op))
     OS << OpStrings[Op] << ' ';
@@ -279,31 +318,29 @@ template <BinOp Op> void BinaryExpression<Op>::print(std::ostream &OS) const {
   else
     OS << " ??? ";
 
-  OS << Right << ')';
+  OS << Right.get() << ')';
 }
 
 void VariableDeclaration::print(std::ostream &OS) const {
   if (!Var)
     return;
 
-  OS << Expression::getType(Var) << " " << Var;
+  OS << Var->getType() << " " << Var.get();
 };
 
-std::ostream &operator<<(std::ostream &OS, const FuncProto::Param &Param) {
-  if (Param.second.has_value()) {
-    OS << Param.first << " " << Param.second.value();
-  } else {
-    OS << Param.first;
-  }
-  return OS;
+void VariableDefinition::print(std::ostream &OS) const {
+  OS << Var.get() << " = " << Expr.get();
 }
 
-std::ostream &operator<<(std::ostream &OS, FuncPtr Proto) {
-  if (!Proto)
-    throw std::runtime_error("Attemt to acceess nullptr FuncProto");
+void ReturnStatement::print(std::ostream &OS) const {
+  OS << "return " << Expr.get();
+}
 
-  Proto->print(OS);
-  return OS;
+void UsingStatement::print(std::ostream &OS) const {
+  if (!Space)
+    throw std::runtime_error("Attemt to dereference nullptr GASpace");
+
+  OS << "using " << Space.get() << "\n";
 }
 
 void FuncProto::print(std::ostream &OS) const {
@@ -311,6 +348,8 @@ void FuncProto::print(std::ostream &OS) const {
   printSeparated(OS, Params, " (", ", ", ") -> ");
   OS << RetType;
 }
+
+void FunctionDeclaration::print(std::ostream &OS) const { OS << Proto << "\n"; }
 
 void FunctionDefinition::print(std::ostream &OS) const {
   OS << Proto;
@@ -397,8 +436,8 @@ GA::RankSet binaryExprImpl<minus>(GA::RankSet &&Left, GA::RankSet &&Right,
 }
 
 template <BinOp Op> GA::Type *BinaryExpression<Op>::getType() const {
-  GA::Type *LType = Expression::getType(Left);
-  GA::Type *RType = Expression::getType(Right);
+  GA::Type *LType = Left->getType();
+  GA::Type *RType = Right->getType();
   if (&LType->getSpace() != &RType->getSpace())
     throw std::runtime_error(
         "Left and right expressions from different spaces");

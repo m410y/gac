@@ -1,6 +1,5 @@
 using +++
 
-function foo ({1} a, {1} b) -> {2}
-  {1} c = a + b + e1
-  return c w b + e12
+function foo ({1} a) -> {1}
+  return a
 end

@@ -1,10 +1,7 @@
 #pragma once
 
 #include <charconv>
-#include <cstddef>
-#include <cstring>
 #include <stdexcept>
-#include <string>
 #include <string_view>
 #include <tree_sitter/api.h>
 #include <vector>
@@ -18,7 +15,7 @@ class TSNodeWrapper {
   friend class Parser;
 
 public:
-  TSNodeWrapper() : Source() { memset(&Node, 0, sizeof(Node)); }
+  TSNodeWrapper() = delete;
   TSNodeWrapper(TSNodeWrapper &&) = default;
   TSNodeWrapper(const TSNodeWrapper &) = default;
   TSNodeWrapper &operator=(TSNodeWrapper &&) = default;

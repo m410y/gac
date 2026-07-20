@@ -1,12 +1,11 @@
 #pragma once
 
-#include "ts_node_wrapper.hpp"
-#include <functional>
-#include <iostream>
+class TSNodeWrapper;
+
 #include <map>
 #include <memory>
-#include <ostream>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace GA {
@@ -31,6 +30,7 @@ public:
   const RankSet &getRanks() const { return Ranks; }
   size_t dof() const;
   void print(std::ostream &OS) const;
+  std::string getName() const;
 };
 
 class Element {
@@ -47,8 +47,14 @@ public:
   static Element *create(GASpace &Space, const TSNodeWrapper &TSN);
 
   GASpace &getSpace() const { return Space; }
+  Type *getType() const { return Type::get(Space, {rank()}); }
   RankTy rank() const;
   size_t id() const;
+  std::vector<double> getValues() const {
+    std::vector<double> Values(getType()->dof(), 0.0);
+    Values[id()] = Val;
+    return Values;
+  }
   void print(std::ostream &OS) const;
 };
 
@@ -74,24 +80,17 @@ public:
   GASpace(const TSNodeWrapper &TSN);
   size_t dim() const { return Sign.size(); }
   void print(std::ostream &OS) const;
+  std::vector<Type *> getTypes() const {
+    std::vector<Type *> Res;
+    for (const auto &[_, TypePtr] : Types)
+      Res.push_back(TypePtr.get());
+
+    return Res;
+  }
 };
 
 } // namespace GA
 
-inline std::ostream &operator<<(std::ostream &OS, const GA::GASpace &Space) {
-  Space.print(OS);
-  return OS;
-}
-
-inline std::ostream &operator<<(std::ostream &OS, const GA::Type &Type) {
-  Type.print(OS);
-  return OS;
-}
-
-inline std::ostream &operator<<(std::ostream &OS, const GA::Element &Element) {
-  Element.print(OS);
-  return OS;
-}
-std::ostream &operator<<(std::ostream &OS, const GA::RankSet &Ranks);
 std::ostream &operator<<(std::ostream &OS, GA::Type *Type);
 std::ostream &operator<<(std::ostream &OS, GA::Element *Element);
+std::ostream &operator<<(std::ostream &OS, GA::GASpace *GASpace);

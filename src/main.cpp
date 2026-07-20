@@ -1,4 +1,5 @@
 #include "ast.hpp"
+#include "codegen.hpp"
 #include "parser.hpp"
 #include <fstream>
 #include <iostream>
@@ -20,19 +21,18 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  Parser parser(File);
+  Parser Parser(File);
   File.close();
 
-  // try {
-  SyntaxTree ast(parser.getRoot());
+  SyntaxTree AST(Parser.getRoot());
   std::cout << "---=== AST dump begin ===---" << std::endl;
-  std::cout << ast << std::endl;
+  std::cout << AST << std::endl;
   std::cout << "---===  AST dump end  ===---" << std::endl;
-  // } catch (std::exception &e) {
-  //   std::cerr << "Error: " << e.what() << std::endl;
-  // }
-  // auto module = ast.codegen();
-  // module->print(llvm::errs(), nullptr);
+
+  BuildContext Context(basename(filename));
+  AST.codegen(Context);
+  auto Module = Context.Module.get();
+  Module->print(llvm::errs(), nullptr);
 
   return 0;
 }

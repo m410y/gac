@@ -1,36 +1,36 @@
 #pragma once
 
-#include "algebra.hpp"
-#include <functional>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/IR/DerivedTypes.h>
+namespace GA {
+class Type;
+class Element;
+} // namespace GA
+class SyntaxTree;
+
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/IR/Type.h>
-#include <llvm/IR/Value.h>
 #include <map>
 #include <memory>
 
-class SyntaxTree;
-
-struct BuildContext {
-  BuildContext(llvm::LLVMContext &Context)
-      : LLVM(Context),
-        Module(std::make_unique<llvm::Module>("module", Context)),
-        Builder(std::make_unique<llvm::IRBuilder<>>(Context)) {}
-
-  llvm::LLVMContext &LLVM;
-  std::unique_ptr<llvm::Module> Module;
-  std::unique_ptr<llvm::IRBuilder<>> Builder;
-  std::map<GA::Type *, llvm::StructType *> Types;
-  std::map<std::string, llvm::Value *, std::less<>> Vars;
-};
-
-class IRCompiler {
-  llvm::LLVMContext LLVMCtx;
+class BuildContext {
+  std::map<GA::Type *, llvm::StructType *> GATypes;
+  std::map<std::string, llvm::AllocaInst *, std::less<>> Vars;
 
 public:
-  IRCompiler() : LLVMCtx() {}
-  std::unique_ptr<llvm::Module> codegen(const SyntaxTree &AST);
+  llvm::LLVMContext LLVM;
+  llvm::Type *Real;
+  std::unique_ptr<llvm::Module> Module;
+  std::unique_ptr<llvm::IRBuilder<>> Builder;
+
+  BuildContext(std::string_view ModuleName)
+      : LLVM(), Real(llvm::Type::getDoubleTy(LLVM)),
+        Module(std::make_unique<llvm::Module>(ModuleName, LLVM)),
+        Builder(std::make_unique<llvm::IRBuilder<>>(LLVM)) {}
+
+  llvm::StructType *getType(GA::Type *Type);
+  llvm::AllocaInst *allocVar(llvm::Value *Val, std::string_view Name);
+  llvm::Value *loadVar(std::string Name) const;
+  llvm::Value *getConst(GA::Element *Elem);
+  llvm::Value *getZero(GA::Type *Type);
+  llvm::Value *callBuiltin(llvm::Value *Val, std::string_view Name);
 };
