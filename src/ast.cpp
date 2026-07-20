@@ -2,22 +2,104 @@
 #include "algebra.hpp"
 #include "iohelper.hpp"
 #include "ts_node_wrapper.hpp"
-#include <cassert>
-#include <functional>
-#include <iostream>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/LLVMContext.h>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <tree_sitter/api.h>
+#include <cstdlib>
 #include <utility>
-#include <vector>
+
+bool FuncProto::operator==(const FuncProto &Right) const {
+  if (Params.size() != Right.Params.size())
+    return false;
+
+  for (size_t i = 0; i < Params.size(); i++)
+    if (Params[i].first != Right.Params[i].first)
+      return false;
+
+  return Name == Right.Name && RetType == Right.RetType;
+}
+
+GA::GASpace &ParseContext::getSpace() const {
+  if (!Space)
+    throw std::runtime_error("No space in context");
+
+  return *Space;
+}
+
+void ParseContext::setSpace(GA::GASpace *Space) { this->Space = Space; }
+
+GA::Type *ParseContext::getVarType(std::string_view Name) const {
+  auto TypesIt = Types.find(Name);
+  if (TypesIt == Types.end())
+    throw std::runtime_error("Undefined variable " + std::string(Name));
+
+  return TypesIt->second;
+}
+
+void ParseContext::setVarType(std::string_view Name, GA::Type *Type) {
+  auto TypesIt = Types.find(Name);
+  if (TypesIt != Types.end())
+    throw std::runtime_error("Redifinition of variable " + std::string(Name));
+
+  Types.insert({std::string(Name), Type});
+}
+
+FuncPtr ParseContext::getFunc(std::string_view Name) const {
+  auto FuncIt = Funcs.find(Name);
+  if (FuncIt == Funcs.end())
+    throw std::runtime_error("Undefined variable " + std::string(Name));
+
+  return FuncIt->second;
+}
+
+FuncPtr ParseContext::createFunc(const FuncProto &Proto) {
+  auto FuncIt = Funcs.find(Proto.Name);
+  if (FuncIt == Funcs.end()) {
+    FuncPtr NewFunc = std::make_shared<FuncProto>(Proto);
+    Funcs.insert({Proto.Name, NewFunc});
+    return NewFunc;
+  }
+  FuncPtr OldProto = FuncIt->second;
+
+  if (OldProto->IsDefined)
+    throw std::runtime_error("Already defined function " + Proto.Name);
+
+  if (*OldProto != Proto)
+    throw std::runtime_error(
+        "Definition doesn't match declaration for function " + Proto.Name);
+
+  OldProto->IsDefined = Proto.IsDefined;
+  OldProto->Params = Proto.Params;
+  return OldProto;
+}
+
+static GA::Type *getNodeType(const TSNodeWrapper &TSN, ParseContext &Context) {
+  TSNodeWrapper TypeNode = TSN.field("type");
+  return GA::Type::get(Context.getSpace(), TypeNode);
+}
+
+static std::vector<FuncProto::Param> getParamList(const TSNodeWrapper &TSN,
+                                                  ParseContext &Context) {
+  std::vector<FuncProto::Param> Params;
+  for (const auto &ParamNode : TSN.field("params").children()) {
+    GA::Type *Type = getNodeType(ParamNode, Context);
+    try {
+      Params.push_back({Type, std::string(ParamNode.field("name").str())});
+    } catch (std::runtime_error &e) {
+      Params.push_back({Type, {}});
+    }
+  }
+  return Params;
+}
 
 //=============================================================================
 // Expressions
 //=============================================================================
+
+GA::Type *Expression::getType(const NodePtr &Node) {
+  const Expression *Expr = dynamic_cast<const Expression *>(Node.get());
+  if (!Expr)
+    throw std::runtime_error("Invalid expression pointer");
+
+  return Expr->getType();
+}
 
 NodePtr Literal::create(const TSNodeWrapper &TSN, ParseContext &Context) {
   return std::unique_ptr<Literal>(
@@ -25,58 +107,33 @@ NodePtr Literal::create(const TSNodeWrapper &TSN, ParseContext &Context) {
 }
 
 NodePtr Variable::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  std::string Name(TSN.string());
-  GA::Type *Type;
-  try {
-    Type = Context.Types.at(Name);
-  } catch (std::out_of_range &e) {
-    throw std::runtime_error("Undefined identifier " + Name);
-  }
+  std::string_view Name = TSN.str();
+  GA::Type *Type = Context.getVarType(Name);
   return std::unique_ptr<Variable>(new Variable(Name, Type));
 }
 
 NodePtr CallExpression::create(const TSNodeWrapper &TSN,
                                ParseContext &Context) {
-  std::string name(TSN.field("name").string());
-  std::vector<NodePtr> Args;
+  std::string_view Name = TSN.field("name").str();
+  FuncPtr Proto = Context.getFunc(Name);
 
+  std::vector<NodePtr> Args;
   for (const auto &Arg : TSN.field("args").children())
     Args.push_back(Node::create(Arg, Context));
 
   return std::unique_ptr<CallExpression>(
-      new CallExpression(name, Context.Types.at(name), std::move(Args)));
+      new CallExpression(Proto, std::move(Args)));
 }
 
 NodePtr UnaryMinus::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  return std::unique_ptr<UnaryMinus>(
-      new UnaryMinus(Node::create(TSN.child(), Context)));
+  NodePtr Expr = Node::create(TSN.child(), Context);
+  return std::unique_ptr<UnaryMinus>(new UnaryMinus(std::move(Expr)));
 }
 
 NodePtr Projection::create(const TSNodeWrapper &TSN, ParseContext &Context) {
-  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("ranks"));
-  return std::unique_ptr<Projection>(
-      new Projection(Node::create(TSN.child(), Context), Type));
-}
-
-std::map<std::string, BinaryExpression::BinOp, std::less<>>
-    BinaryExpression::NodeOp = {
-        {"assignment", assign},  {"binary_plus", plus},
-        {"binary_minus", minus}, {"geometric_product", geom},
-        {"dot_product", dot},    {"wedge_product", wedge},
-        {"vee_product", vee},    {"scalar_product", scalar},
-};
-
-NodePtr BinaryExpression::create(const TSNodeWrapper &TSN,
-                                 ParseContext &Context) {
-  std::string_view Type = TSN.type();
-
-  auto OpIt = NodeOp.find(Type);
-  if (OpIt == NodeOp.end())
-    throw std::runtime_error("Unknown binary operator " + std::string(Type));
-
-  return std::unique_ptr<BinaryExpression>(
-      new BinaryExpression(OpIt->second, Node::create(TSN.child(0), Context),
-                           Node::create(TSN.child(1), Context)));
+  NodePtr Expr = Node::create(TSN.child(), Context);
+  GA::Type *Type = getNodeType(TSN, Context);
+  return std::unique_ptr<Projection>(new Projection(std::move(Expr), Type));
 }
 
 //=============================================================================
@@ -85,29 +142,26 @@ NodePtr BinaryExpression::create(const TSNodeWrapper &TSN,
 
 NodePtr VariableDeclaration::create(const TSNodeWrapper &TSN,
                                     ParseContext &Context) {
-  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("type"));
+  GA::Type *Type = getNodeType(TSN, Context);
   TSNodeWrapper VarNode = TSN.field("name");
-  std::string Name(VarNode.string());
-  auto TypesIt = Context.Types.find(Name);
-  if (TypesIt != Context.Types.end())
-    throw std::runtime_error("Redefinition of variable " + Name);
+  Context.setVarType(VarNode.str(), Type);
 
-  Context.Types.insert({Name, Type});
   return std::unique_ptr<VariableDeclaration>(
       new VariableDeclaration(Node::create(VarNode, Context)));
 }
 
 NodePtr VariableDefinition::create(const TSNodeWrapper &TSN,
                                    ParseContext &Context) {
+  NodePtr Decl = Node::create(TSN.field("decl"), Context);
+  NodePtr Expr = Node::create(TSN.field("expr"), Context);
   return std::unique_ptr<VariableDefinition>(
-      new VariableDefinition(Node::create(TSN.field("decl"), Context),
-                             Node::create(TSN.field("expr"), Context)));
+      new VariableDefinition(std::move(Decl), std::move(Expr)));
 }
 
 NodePtr ReturnStatement::create(const TSNodeWrapper &TSN,
                                 ParseContext &Context) {
-  return std::unique_ptr<ReturnStatement>(
-      new ReturnStatement(Node::create(TSN.child(), Context)));
+  NodePtr Expr = Node::create(TSN.child(), Context);
+  return std::unique_ptr<ReturnStatement>(new ReturnStatement(std::move(Expr)));
 }
 
 //=============================================================================
@@ -116,33 +170,40 @@ NodePtr ReturnStatement::create(const TSNodeWrapper &TSN,
 
 NodePtr UsingStatement::create(const TSNodeWrapper &TSN,
                                ParseContext &Context) {
-  std::unique_ptr<UsingStatement> NewSpace(
-      new UsingStatement(GA::GASpace(TSN.child())));
-  Context.setSpace(&NewSpace->Space);
-  return std::move(NewSpace);
+  GA::GASpace Space(TSN.child());
+  std::unique_ptr<UsingStatement> NewNode(new UsingStatement(std::move(Space)));
+  Context.setSpace(&NewNode->Space);
+  return std::move(NewNode);
+}
+
+NodePtr FunctionDeclaration::create(const TSNodeWrapper &TSN,
+                                    ParseContext &Context) {
+  std::string_view Name = TSN.field("name").str();
+  GA::Type *RetType = getNodeType(TSN, Context);
+  auto Params = getParamList(TSN, Context);
+
+  FuncPtr Proto = Context.declareFunc(Name, RetType, Params);
+  return std::unique_ptr<FunctionDeclaration>(new FunctionDeclaration(Proto));
 }
 
 NodePtr FunctionDefinition::create(const TSNodeWrapper &TSN,
                                    ParseContext &Context) {
-  std::string Name(TSN.field("name").string());
-  GA::Type *Type = GA::Type::get(Context.getSpace(), TSN.field("type"));
+  std::string_view Name = TSN.field("name").str();
+  GA::Type *RetType = getNodeType(TSN, Context);
+  auto Params = getParamList(TSN, Context);
 
-  auto TypesIt = Context.Types.find(Name);
-  if (TypesIt != Context.Types.end())
-    throw std::runtime_error("Redefinition of variable " + Name);
+  FuncPtr Proto = Context.defineFunc(Name, RetType, Params);
 
-  Context.Types.insert({Name, Type});
-
-  std::vector<NodePtr> Params;
-  for (auto &variable_decl : TSN.field("params").children())
-    Params.push_back(Node::create(variable_decl, Context));
+  for (const auto &Param : Proto->Params)
+    if (Param.second.has_value())
+      Context.setVarType(Param.second.value(), Param.first);
 
   std::vector<NodePtr> Body;
   for (auto &statement : TSN.field("body").children())
     Body.push_back(Node::create(statement, Context));
 
   return std::unique_ptr<FunctionDefinition>(
-      new FunctionDefinition(Name, Type, std::move(Params), std::move(Body)));
+      new FunctionDefinition(Proto, std::move(Body)));
 }
 
 //=============================================================================
@@ -159,9 +220,9 @@ static NodePtr trivial_node(const TSNodeWrapper &TSN, ParseContext &Context) {
   return Node::create(TSN.child(), Context);
 }
 
-static const std::map<
-    std::string, std::function<NodePtr(const TSNodeWrapper &, ParseContext &)>,
-    std::less<>>
+static const std::map<std::string,
+                      NodePtr (*)(const TSNodeWrapper &, ParseContext &),
+                      std::less<>>
     Constructors = {
         {"int_literal", Literal::create},
         {"float_literal", Literal::create},
@@ -172,14 +233,14 @@ static const std::map<
         {"unary_plus", trivial_node},
         {"unary_minus", UnaryMinus::create},
         {"projection", Projection::create},
-        {"assignment", BinaryExpression::create},
-        {"binary_plus", BinaryExpression::create},
-        {"binary_minus", BinaryExpression::create},
-        {"geometric_product", BinaryExpression::create},
-        {"wedge_product", BinaryExpression::create},
-        {"vee_product", BinaryExpression::create},
-        {"dot_product", BinaryExpression::create},
-        {"scalar_product", BinaryExpression::create},
+        {"assignment", BinaryExpression<assign>::create},
+        {"binary_plus", BinaryExpression<plus>::create},
+        {"binary_minus", BinaryExpression<minus>::create},
+        {"geometric_product", BinaryExpression<geom>::create},
+        {"wedge_product", BinaryExpression<wedge>::create},
+        {"vee_product", BinaryExpression<vee>::create},
+        {"dot_product", BinaryExpression<dot>::create},
+        {"scalar_product", BinaryExpression<scalar>::create},
         {"variable_declaration", VariableDeclaration::create},
         {"variable_definition", VariableDefinition::create},
         {"return_statement", ReturnStatement::create},
@@ -204,33 +265,60 @@ void CallExpression::print(std::ostream &OS) const {
   printSeparated(OS, Args, "(", ", ", ")");
 }
 
-std::map<BinaryExpression::BinOp, std::string> BinaryExpression::OpStr = {
-    {assign, " = "}, {plus, " + "},  {minus, " - "}, {geom, " "},
-    {dot, " . "},    {wedge, " w "}, {vee, " v "},   {scalar, " * "},
-};
+static std::map<BinOp, const char *> OpStrings = {
+    {assign, "="}, {plus, "+"}, {minus, "-"}, {dot, "."},
+    {wedge, "w"},  {vee, "v"},  {scalar, "*"}};
 
-void BinaryExpression::print(std::ostream &OS) const {
-  OS << "(" << Left << OpStr.at(Op) << Right << ")";
+template <BinOp Op> void BinaryExpression<Op>::print(std::ostream &OS) const {
+  OS << '(' << Left << ' ';
+
+  if (OpStrings.count(Op))
+    OS << OpStrings[Op] << ' ';
+  else if (Op == geom)
+    OS << ' ';
+  else
+    OS << " ??? ";
+
+  OS << Right << ')';
 }
 
 void VariableDeclaration::print(std::ostream &OS) const {
   if (!Var)
     return;
 
-  GA::Type *Type = dynamic_cast<Variable *>(Var.get())->getType();
-  OS << *Type << " " << Var;
+  OS << Expression::getType(Var) << " " << Var;
 };
 
-void FunctionDefinition::print(std::ostream &OS) const {
+std::ostream &operator<<(std::ostream &OS, const FuncProto::Param &Param) {
+  if (Param.second.has_value()) {
+    OS << Param.first << " " << Param.second.value();
+  } else {
+    OS << Param.first;
+  }
+  return OS;
+}
+
+std::ostream &operator<<(std::ostream &OS, FuncPtr Proto) {
+  if (!Proto)
+    throw std::runtime_error("Attemt to acceess nullptr FuncProto");
+
+  Proto->print(OS);
+  return OS;
+}
+
+void FuncProto::print(std::ostream &OS) const {
   OS << "function " << Name;
-  printSeparated(OS, Params, " (", ", ", ")");
-  OS << " -> " << *Type;
-  printSeparated(OS, Body, "\n  ", "\n  ", "\nend\n");
+  printSeparated(OS, Params, " (", ", ", ") -> ");
+  OS << RetType;
+}
+
+void FunctionDefinition::print(std::ostream &OS) const {
+  OS << Proto;
+  printSeparated(OS, Body, "\n  ", "\n  ", "\nend");
 }
 
 std::ostream &operator<<(std::ostream &OS, const SyntaxTree &Tree) {
-  printSeparated(OS, Tree.Statements, "---=== AST dump begin ===---\n", "\n",
-                 "---===  AST dump end  ===---");
+  printSeparated(OS, Tree.Statements, "", "\n", "");
   return OS;
 }
 
@@ -238,51 +326,87 @@ std::ostream &operator<<(std::ostream &OS, const SyntaxTree &Tree) {
 // Binary expression's type resolve
 //=============================================================================
 
-GA::Type *BinaryExpression::getType() const {
+template <BinOp Op>
+GA::RankSet gaMulImpl(GA::RankTy left, GA::RankTy right, GA::RankTy dim);
+
+template <>
+GA::RankSet gaMulImpl<geom>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
   GA::RankSet Ranks;
-  GA::Type *LType = dynamic_cast<Expression *>(Left.get())->getType();
-  GA::Type *RType = dynamic_cast<Expression *>(Right.get())->getType();
+  for (GA::RankTy rank = max - min; rank <= std::min(dim, max + min); rank += 2)
+    Ranks.insert(rank);
+  return Ranks;
+}
+
+template <>
+GA::RankSet gaMulImpl<dot>(GA::RankTy min, GA::RankTy max, GA::RankTy) {
+  return GA::RankSet{max - min};
+}
+
+template <>
+GA::RankSet gaMulImpl<wedge>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
+  GA::RankTy sum = min + max;
+  return sum > dim ? GA::RankSet{} : GA::RankSet{sum};
+}
+
+template <>
+GA::RankSet gaMulImpl<vee>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
+  GA::RankTy sum = min + max;
+  return sum < dim ? GA::RankSet{} : GA::RankSet{dim - sum};
+}
+
+template <>
+GA::RankSet gaMulImpl<scalar>(GA::RankTy min, GA::RankTy max, GA::RankTy) {
+  return min != max ? GA::RankSet{} : GA::RankSet{0};
+}
+
+template <BinOp Op>
+static GA::RankSet binaryExprImpl(GA::RankSet &&Left, GA::RankSet &&Right,
+                                  GA::RankTy dim) {
+  GA::RankSet Ranks;
+  for (GA::RankTy left : Left)
+    for (GA::RankTy right : Right) {
+      auto minmax = std::minmax(left, right);
+      Ranks.merge(gaMulImpl<Op>(minmax.first, minmax.second, dim));
+    }
+
+  return Ranks;
+}
+
+template <>
+GA::RankSet binaryExprImpl<assign>(GA::RankSet &&Left, GA::RankSet &&Right,
+                                   GA::RankTy) {
+  if (Left != Right)
+    throw std::runtime_error("Left and Right expressions have different types");
+
+  return Left;
+}
+
+template <>
+GA::RankSet binaryExprImpl<plus>(GA::RankSet &&Left, GA::RankSet &&Right,
+                                 GA::RankTy) {
+  GA::RankSet Ranks;
+  Ranks.merge(Left);
+  Ranks.merge(Right);
+  return Ranks;
+}
+
+template <>
+GA::RankSet binaryExprImpl<minus>(GA::RankSet &&Left, GA::RankSet &&Right,
+                                  GA::RankTy dim) {
+  return binaryExprImpl<plus>(std::move(Left), std::move(Right), dim);
+}
+
+template <BinOp Op> GA::Type *BinaryExpression<Op>::getType() const {
+  GA::Type *LType = Expression::getType(Left);
+  GA::Type *RType = Expression::getType(Right);
+  if (&LType->getSpace() != &RType->getSpace())
+    throw std::runtime_error(
+        "Left and right expressions from different spaces");
+
   GA::GASpace &Space = LType->getSpace();
-
-  switch (Op) {
-  case assign:
-    if (LType->getRanks() != RType->getRanks())
-      throw std::runtime_error(
-          "Left and Right expressions have different types");
-
-    return LType;
-  case plus:
-  case minus:
-    Ranks.merge(LType->getRanks());
-    Ranks.merge(RType->getRanks());
-    break;
-  case geom:
-    for (auto LRank : LType->getRanks())
-      for (auto RRank : RType->getRanks())
-        for (auto Rank = std::min(LRank, RRank); Rank < std::max(LRank, RRank);
-             Rank++)
-          Ranks.insert(Rank);
-    break;
-  case dot:
-    for (auto LRank : LType->getRanks())
-      for (auto RRank : RType->getRanks())
-        Ranks.insert(std::max(LRank, RRank) - std::min(LRank, RRank));
-    break;
-  case wedge:
-    for (auto LRank : LType->getRanks())
-      for (auto RRank : RType->getRanks())
-        if (LRank + RRank <= Space.dim())
-          Ranks.insert(LRank + RRank);
-    break;
-  case vee:
-    for (auto LRank : LType->getRanks())
-      for (auto RRank : RType->getRanks())
-        if (LRank + RRank >= Space.dim())
-          Ranks.insert(LRank + RRank - Space.dim());
-    break;
-  case scalar:
-    return GA::Type::get(Space, {0});
-  }
-
-  return GA::Type::get(Space, Ranks);
+  GA::RankSet LRanks = LType->getRanks();
+  GA::RankSet RRanks = LType->getRanks();
+  return GA::Type::get(
+      Space,
+      binaryExprImpl<Op>(std::move(LRanks), std::move(RRanks), Space.dim()));
 }

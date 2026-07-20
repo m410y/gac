@@ -78,8 +78,6 @@ public:
 
 } // namespace GA
 
-std::ostream &operator<<(std::ostream &OS, const GA::RankSet &Ranks);
-
 inline std::ostream &operator<<(std::ostream &OS, const GA::GASpace &Space) {
   Space.print(OS);
   return OS;
@@ -94,3 +92,6 @@ inline std::ostream &operator<<(std::ostream &OS, const GA::Element &Element) {
   Element.print(OS);
   return OS;
 }
+std::ostream &operator<<(std::ostream &OS, const GA::RankSet &Ranks);
+std::ostream &operator<<(std::ostream &OS, GA::Type *Type);
+std::ostream &operator<<(std::ostream &OS, GA::Element *Element);

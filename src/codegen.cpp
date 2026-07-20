@@ -15,7 +15,7 @@ using namespace llvm;
 // Expressions
 //=============================================================================
 
-Value *Literal::codegen(BuildContext &context) const {
+Value *Literal::codegen(BuildContext &) const {
   // GA::Type type(el.rank(), ssign);
   // std::vector<double> values(type.dof());
   // values[el.ranked_id()] = el.val;
@@ -24,7 +24,7 @@ Value *Literal::codegen(BuildContext &context) const {
   return nullptr;
 }
 
-Value *Variable::codegen(BuildContext &context) const {
+Value *Variable::codegen(BuildContext &) const {
   return nullptr;
   // try {
   //   return context.vars.at(name);
@@ -34,7 +34,7 @@ Value *Variable::codegen(BuildContext &context) const {
   // }
 }
 
-Value *CallExpression::codegen(BuildContext &context) const {
+Value *CallExpression::codegen(BuildContext &) const {
   // Function *Callee = context.module->getFunction(name);
   // if (Callee->arg_size() != args.size()) {
   //   std::cerr << "wrong number of arguments\n";
@@ -52,7 +52,7 @@ Value *CallExpression::codegen(BuildContext &context) const {
   return nullptr;
 }
 
-Value *UnaryMinus::codegen(BuildContext &context) const {
+Value *UnaryMinus::codegen(BuildContext &) const {
   // Value *Val = expr->codegen(context);
   // if (!Val)
   //   return nullptr;
@@ -61,7 +61,11 @@ Value *UnaryMinus::codegen(BuildContext &context) const {
 }
 
 Value *Projection::codegen(BuildContext &) const { return nullptr; }
-Value *BinaryExpression::codegen(BuildContext &) const { return nullptr; }
+
+// template <BinOp Op> Value *BinaryExpression<Op>::codegen(BuildContext &)
+// const {
+//   return nullptr;
+// }
 
 //=============================================================================
 // Local scope statements
@@ -69,7 +73,7 @@ Value *BinaryExpression::codegen(BuildContext &) const { return nullptr; }
 
 void VariableDeclaration::codegen(BuildContext &) const {}
 void VariableDefinition::codegen(BuildContext &) const {}
-void ReturnStatement::codegen(BuildContext &context) const {
+void ReturnStatement::codegen(BuildContext &) const {
   // Value *retval = Expr->codegen(context);
   // if (!retval) {
   //   std::cerr << "no value provided to return\n";
@@ -82,11 +86,12 @@ void ReturnStatement::codegen(BuildContext &context) const {
 // Top-level statements
 //=============================================================================
 
-void UsingStatement::codegen(BuildContext &Context) const {
+void UsingStatement::codegen(BuildContext &) const {
   // Type *Double = Type::getDoubleTy(Context.LLVM);
 }
 
-void FunctionDefinition::codegen(BuildContext &Context) const {
+void FunctionDeclaration::codegen(BuildContext &) const {}
+void FunctionDefinition::codegen(BuildContext &) const {
   // std::vector<Type *> argtypes;
   // for (const auto &Decl : Params) {
   //   dynamic_cast<VariableDeclaration *>(Decl.get());

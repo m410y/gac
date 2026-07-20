@@ -2,6 +2,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string_view>
+#include <tree_sitter/api.h>
 
 extern "C" const TSLanguage *tree_sitter_ga();
 
@@ -40,5 +41,9 @@ TSNodeWrapper Parser::getRoot() const {
   if (!TreePtr)
     throw std::runtime_error("No tree parsed yet");
 
-  return TSNodeWrapper(ts_tree_root_node(TreePtr.get()), Src);
+  TSNode Root = ts_tree_root_node(TreePtr.get());
+  if (ts_node_is_null(Root))
+    throw std::runtime_error("Root node is null after tree creationg");
+
+  return TSNodeWrapper(Root, Src);
 }

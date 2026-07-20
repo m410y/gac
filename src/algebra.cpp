@@ -120,6 +120,20 @@ void GASpace::print(std::ostream &OS) const {
   printSeparated(OS, Sign, "{", ",", "}");
 }
 
+std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
+  if (!Type)
+    throw std::runtime_error("Attempt to dereference nullptr Type");
+
+  return OS << *Type;
+}
+
+std::ostream &operator<<(std::ostream &OS, GA::Element *Element) {
+  if (!Element)
+    throw std::runtime_error("Attempt to dereference nullptr Element");
+
+  return OS << *Element;
+}
+
 //=============================================================================
 // Constructors from tree-sitter
 //=============================================================================
@@ -128,7 +142,7 @@ Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
   if (TSN.type() == "int_literal")
     return Type::get(Space, {TSN.parse<RankTy>()});
 
-  auto AliasIt = Space.TypeAliases.find(TSN.string());
+  auto AliasIt = Space.TypeAliases.find(TSN.str());
   if (AliasIt != Space.TypeAliases.end())
     return AliasIt->second;
 
@@ -141,7 +155,7 @@ Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
 }
 
 Element *Element::create(GASpace &Space, const TSNodeWrapper &TSN) {
-  std::string_view Str = TSN.string();
+  std::string_view Str = TSN.str();
 
   if (Str.front() == 'e') {
     Str.remove_prefix(1);
@@ -161,7 +175,7 @@ GASpace::GASpace(const TSNodeWrapper &TSN) {
   const std::array DefaultSign = {1.0, -1.0, 0.0};
   std::string_view Type = TSN.type();
   if (Type == "simple_metric") {
-    for (char c : TSN.string()) {
+    for (char c : TSN.str()) {
       switch (c) {
       case '+':
         Sign.push_back(DefaultSign[0]);

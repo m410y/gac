@@ -1,6 +1,5 @@
 #include "ast.hpp"
 #include "parser.hpp"
-#include <exception>
 #include <fstream>
 #include <iostream>
 #include <llvm/Support/raw_ostream.h>
@@ -26,7 +25,9 @@ int main(int argc, char *argv[]) {
 
   // try {
   SyntaxTree ast(parser.getRoot());
+  std::cout << "---=== AST dump begin ===---" << std::endl;
   std::cout << ast << std::endl;
+  std::cout << "---===  AST dump end  ===---" << std::endl;
   // } catch (std::exception &e) {
   //   std::cerr << "Error: " << e.what() << std::endl;
   // }

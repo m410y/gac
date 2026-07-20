@@ -11,4 +11,4 @@ run: build
 	build/gac test/test.ga
 
 clean:
-	rm -rf Build
+	rm -rf build
