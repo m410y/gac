@@ -15,7 +15,7 @@ using namespace llvm;
 //=============================================================================
 
 Value *Literal::codegen(BuildContext &Context) const {
-  return Context.getConst(El);
+  return Context.getConst(Val);
 }
 
 Value *Variable::codegen(BuildContext &Context) const {
@@ -140,16 +140,16 @@ AllocaInst *BuildContext::allocVar(Value *Val, std::string_view Name) {
   return Alloca;
 }
 
-Value *BuildContext::loadVar(std::string Name) const {
+LoadInst *BuildContext::loadVar(std::string Name) const {
   AllocaInst *Var = Vars.at(Name);
   LoadInst *Load =
       Builder->CreateLoad(Var->getAllocatedType(), Var, Name + "_load");
   return Load;
 }
 
-Value *BuildContext::getConst(GA::Element *Elem) {
-  StructType *LLType = getType(Elem->getType());
-  std::vector<double> Values(Elem->getValues());
+Value *BuildContext::getConst(GA::ElementValue Val) {
+  StructType *LLType = getType(Val.getType());
+  std::vector<double> Values = Val.getValues();
   Constant *Data = ConstantDataArray::get(LLVM, Values);
   return ConstantStruct::get(LLType, {Data});
 }

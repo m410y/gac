@@ -2,7 +2,7 @@
 
 namespace GA {
 class Type;
-class Element;
+class ElementValue;
 } // namespace GA
 class SyntaxTree;
 
@@ -29,8 +29,8 @@ public:
 
   llvm::StructType *getType(GA::Type *Type);
   llvm::AllocaInst *allocVar(llvm::Value *Val, std::string_view Name);
-  llvm::Value *loadVar(std::string Name) const;
-  llvm::Value *getConst(GA::Element *Elem);
+  llvm::LoadInst *loadVar(std::string Name) const;
+  llvm::Value *getConst(GA::ElementValue Val);
   llvm::Value *getZero(GA::Type *Type);
   llvm::Value *callBuiltin(llvm::Value *Val, std::string_view Name);
 };

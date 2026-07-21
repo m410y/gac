@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
 
   std::ifstream File(filename);
   if (!File.is_open()) {
-    std::cerr << "Cant open " << argv[1] << std::endl;
+    std::cerr << "Cant open " << filename << std::endl;
     return 0;
   }
 

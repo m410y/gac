@@ -1,7 +1,12 @@
 #include "algebra.hpp"
 #include "ts_node_wrapper.hpp"
 #include <array>
+#include <memory>
 #include <sstream>
+#include <stdexcept>
+#include <vector>
+
+using namespace GA;
 
 constexpr size_t binomial(int n, int k) {
   if (k < 0 || n < k)
@@ -17,58 +22,20 @@ constexpr size_t binomial(int n, int k) {
   return res;
 }
 
-using namespace GA;
+size_t Element::dof() const { return binomial(getSpace().dim(), rank()); }
 
-Type *Type::get(GASpace &Space, const RankSet &Ranks) {
-  std::unique_ptr<Type> NewType(new Type(Space, Ranks));
-  Space.Types.insert({Ranks, std::move(NewType)});
-  return Space.Types[Ranks].get();
-}
-
-size_t Type::dof() const {
+size_t RankedType::dof() const {
   size_t res = 0;
-  size_t dim = Space.dim();
-  for (const RankTy &Rank : Ranks)
+  size_t dim = getSpace().dim();
+  for (const ID &Rank : Ranks)
     res += binomial(dim, Rank);
 
   return res;
 }
 
-Element *Element::create(GASpace &Space, const std::vector<size_t> &Indices,
-                         double Mul) {
-  std::vector<bool> BVec(Space.dim());
-
-  for (size_t i : Indices) {
-    if (i >= BVec.size())
-      throw std::runtime_error("Basis index is out of range");
-
-    BVec[i].flip();
-  }
-
-  std::vector<size_t> Perm = Indices;
-  // bubble sort
-  for (size_t i = 0; i < Perm.size(); i++)
-    for (size_t j = 1; i + j < Perm.size(); j++) {
-      size_t &left = Perm[j - 1];
-      size_t &right = Perm[j];
-
-      if (left < right)
-        continue;
-      else if (left == right)
-        Mul *= Space.Sign[right];
-
-      std::swap(left, right);
-      Mul *= -1.0;
-    }
-
-  Space.Elements.push_back(
-      std::unique_ptr<Element>(new Element(Space, std::move(BVec), Mul)));
-  return Space.Elements.back().get();
-}
-
-RankTy Element::rank() const {
-  RankTy acc = 0;
-  for (auto bit : BVec)
+ID Element::rank() const {
+  ID acc = 0;
+  for (bool bit : BVec)
     acc += bit;
 
   return acc;
@@ -91,29 +58,109 @@ size_t Element::id() const {
   return res;
 }
 
+static IDSet bvec2indices(const std::vector<bool> BVec) {
+  IDSet Indices;
+  for (ID i = 0; i < BVec.size(); i++)
+    if (BVec[i])
+      Indices.insert(i);
+
+  return Indices;
+}
+
+static std::vector<bool> indices2bvec(const IDSet &Indices, ID dim) {
+  std::vector<bool> BVec(dim, 0);
+  for (ID i : Indices) {
+    if (i >= dim)
+      throw std::out_of_range("Too large index for current space");
+
+    BVec[i] = 1;
+  }
+
+  return BVec;
+}
+
+//=============================================================================
+// Type factory
+//=============================================================================
+
+RankedType *GASpace::getRanked(const IDSet &Ranks) {
+  if (RankedTypes.count(Ranks))
+    return RankedTypes.at(Ranks).get();
+
+  auto NewType = std::make_unique<RankedType>(*this, Ranks);
+  RankedType *Ptr = NewType.get();
+  RankedTypes.insert({Ranks, std::move(NewType)});
+  return Ptr;
+}
+
+Element *GASpace::getElement(const std::vector<bool> &BVec) {
+  IDSet Indices = bvec2indices(BVec);
+
+  if (Elements.count(Indices))
+    return Elements.at(Indices).get();
+
+  auto NewType = std::make_unique<Element>(*this, BVec);
+  Element *Ptr = NewType.get();
+  Elements.insert({Indices, std::move(NewType)});
+  return Ptr;
+}
+
+Element *GASpace::getElement(const IDSet &Indices) {
+  if (Elements.count(Indices))
+    return Elements.at(Indices).get();
+
+  std::vector<bool> BVec = indices2bvec(Indices, dim());
+
+  auto NewType = std::make_unique<Element>(*this, BVec);
+  Element *Ptr = NewType.get();
+  Elements.insert({Indices, std::move(NewType)});
+  return Ptr;
+}
+
+ElementValue GASpace::getElement(std::vector<ID> Indices) {
+  std::vector<bool> BVec(dim(), 0);
+  double Val = 1.0;
+
+  for (ID i : Indices) {
+    if (i >= dim())
+      throw std::out_of_range("Too large index for current space");
+
+    BVec[i].flip();
+  }
+
+  // bubble sort
+  for (size_t i = 0; i < Indices.size(); i++)
+    for (size_t j = 1; i + j < Indices.size(); j++) {
+      ID &left = Indices[j - 1];
+      ID &right = Indices[j];
+
+      if (IDComp()(left, right))
+        continue;
+      else if (left == right)
+        Val *= Sign[right];
+
+      std::swap(left, right);
+      Val *= -1.0;
+    }
+
+  Element *El = getElement(BVec);
+  return ElementValue(*El, Val);
+}
+
 //=============================================================================
 // Printing
 //=============================================================================
 
-static std::ostream &operator<<(std::ostream &OS, const GA::GASpace &Space) {
-  Space.print(OS);
-  return OS;
-}
-
-static std::ostream &operator<<(std::ostream &OS, const GA::Type &Type) {
-  Type.print(OS);
-  return OS;
-}
-
-static std::ostream &operator<<(std::ostream &OS, const GA::Element &Element) {
-  Element.print(OS);
-  return OS;
+std::string Type::getName() const {
+  std::ostringstream OSS;
+  print(OSS);
+  return OSS.str();
 }
 
 template <typename T>
-inline static void printSeparated(std::ostream &OS, const T &Container,
-                                  std::string_view Start, std::string_view Sep,
-                                  std::string_view Stop) {
+static void printSeparated(std::ostream &OS, const T &Container,
+                           std::string_view Start, std::string_view Sep,
+                           std::string_view Stop) {
   OS << Start;
   bool begin = true;
   for (const auto &Element : Container)
@@ -124,46 +171,47 @@ inline static void printSeparated(std::ostream &OS, const T &Container,
 
 std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
   if (!Type)
-    throw std::runtime_error("Attempt to dereference nullptr Type");
+    throw std::runtime_error("Type is nullptr");
 
-  return OS << *Type;
+  Type->print(OS);
+  return OS;
 }
 
-std::ostream &operator<<(std::ostream &OS, GA::Element *Element) {
-  if (!Element)
-    throw std::runtime_error("Attempt to dereference nullptr Element");
-
-  return OS << *Element;
+std::ostream &operator<<(std::ostream &OS, GA::ElementValue Val) {
+  Val.print(OS);
+  return OS;
 }
 
 std::ostream &operator<<(std::ostream &OS, GA::GASpace *Space) {
   if (!Space)
-    throw std::runtime_error("Attempt to dereference nullptr Element");
+    throw std::runtime_error("Space is nullptr");
 
-  return OS << *Space;
-}
-
-void Type::print(std::ostream &OS) const {
-  printSeparated(OS, Ranks, "{", ",", "}");
-}
-
-std::string Type::getName() const {
-  std::ostringstream OSS;
-  print(OSS);
-  return OSS.str();
+  Space->print(OS);
+  return OS;
 }
 
 void Element::print(std::ostream &OS) const {
-  OS << Mul;
-
-  if (rank() == 0)
+  if (rank() == 0) {
+    OS << "1";
     return;
+  }
 
   OS << "e";
   for (size_t i = 0; i < BVec.size(); i++) {
     if (BVec[i])
       OS << static_cast<int>(i);
   }
+}
+
+void RankedType::print(std::ostream &OS) const {
+  printSeparated(OS, Ranks, "{", ",", "}");
+}
+
+void ElementValue::print(std::ostream &OS) const {
+  if (!El)
+    throw std::runtime_error("Element is nullptr");
+
+  OS << El << " " << Val;
 }
 
 void GASpace::print(std::ostream &OS) const {
@@ -180,37 +228,38 @@ void GASpace::print(std::ostream &OS) const {
 // Constructors from tree-sitter
 //=============================================================================
 
-Type *Type::get(GASpace &Space, const TSNodeWrapper &TSN) {
+RankedType *GASpace::getRanked(const TSNodeWrapper &TSN) {
   if (TSN.type() == "int_literal")
-    return Type::get(Space, {TSN.parse<RankTy>()});
+    return getRanked({TSN.parse<ID>()});
 
-  auto AliasIt = Space.TypeAliases.find(TSN.str());
-  if (AliasIt != Space.TypeAliases.end())
+  auto AliasIt = Aliases.find(TSN.str());
+  if (AliasIt != Aliases.end())
     return AliasIt->second;
 
-  RankSet Ranks;
+  IDSet Ranks;
   for (const auto &Child : TSN.children())
-    for (RankTy Rank : get(Space, Child)->Ranks)
-      Ranks.insert(Rank);
+    for (ID rank : (getRanked(Child)->ranks()))
+      Ranks.insert(rank);
 
-  return get(Space, Ranks);
+  return getRanked(Ranks);
 }
 
-Element *Element::create(GASpace &Space, const TSNodeWrapper &TSN) {
+ElementValue GASpace::getElement(const TSNodeWrapper &TSN) {
   std::string_view Str = TSN.str();
 
   if (Str.front() == 'e') {
     Str.remove_prefix(1);
-    std::vector<size_t> Indices;
+    std::vector<ID> Indices;
     for (char c : Str)
       Indices.push_back(c - '0');
 
-    return Element::create(Space, Indices);
+    return getElement(Indices);
   }
 
   double mul;
   std::from_chars(Str.data(), Str.data() + Str.size(), mul);
-  return Element::create(Space, {}, mul);
+  Element *El = getElement(IDSet{});
+  return ElementValue(*El, mul);
 }
 
 GASpace::GASpace(const TSNodeWrapper &TSN) {

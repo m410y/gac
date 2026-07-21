@@ -1,10 +1,10 @@
 #pragma once
 
-#include <optional>
 class TSNodeWrapper;
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -12,67 +12,93 @@ class TSNodeWrapper;
 namespace GA {
 
 class GASpace;
-using RankTy = unsigned;
-using RankSet = std::set<RankTy>;
+using ID = unsigned;
+using IDComp = std::less<>;
+using IDSet = std::set<ID, IDComp>;
 
 class Type {
   GASpace &Space;
-  RankSet Ranks;
-  std::set<std::string_view> Aliases;
-
-  explicit Type(GASpace &Space, const RankSet &Ranks)
-      : Space(Space), Ranks(Ranks) {};
 
 public:
-  static Type *get(GASpace &Space, const RankSet &Ranks);
-  static Type *get(GASpace &Space, const TSNodeWrapper &TSN);
+  Type(GASpace &Space) : Space(Space) {}
+  virtual ~Type() = default;
   GASpace &getSpace() const { return Space; }
-  RankSet &getRanks() { return Ranks; }
-  const RankSet &getRanks() const { return Ranks; }
-  size_t dof() const;
-  void print(std::ostream &OS) const;
-  std::string getName() const;
+  virtual IDSet ranks() = 0;
+  virtual size_t dof() const = 0;
+  virtual void print(std::ostream &OS) const = 0;
+  virtual std::string getName() const;
 };
 
-class Element {
-  GASpace &Space;
+class Element : public Type {
   std::vector<bool> BVec;
-  double Mul;
-
-  explicit Element(GASpace &Space, const std::vector<bool> &BVec, double Mul)
-      : Space(Space), BVec(BVec), Mul(Mul) {};
 
 public:
-  static Element *create(GASpace &Space, const std::vector<size_t> &Indices,
-                         double Mul = 1.0);
-  static Element *create(GASpace &Space, const TSNodeWrapper &TSN);
-
-  GASpace &getSpace() const { return Space; }
-  RankTy rank() const;
-  Type *getType() const { return Type::get(Space, {rank()}); }
+  Element(GASpace &Space, const std::vector<bool> &BVec)
+      : Type(Space), BVec(BVec) {};
+  ID rank() const;
   size_t id() const;
+  IDSet ranks() override { return {rank()}; }
+  size_t dof() const override;
+  void print(std::ostream &OS) const override;
+};
+
+class RankedType : public Type {
+  IDSet Ranks;
+
+public:
+  RankedType(GASpace &Space, const IDSet &Ranks) : Type(Space), Ranks(Ranks) {};
+  IDSet ranks() override { return Ranks; }
+  size_t dof() const override;
+  void print(std::ostream &OS) const override;
+};
+
+class Value {
+  GASpace &Space;
+
+public:
+  Value(GASpace &Space) : Space(Space) {}
+  virtual ~Value() = default;
+  GASpace &getSpace() const { return Space; }
+  virtual Type *getType() const = 0;
+  virtual void print(std::ostream &OS) const = 0;
+};
+
+class ElementValue : public Value {
+  Element *El;
+  double Val;
+
+public:
+  ElementValue(const Element &El, double Val)
+      : Value(El.getSpace()), Val(Val) {}
   std::vector<double> getValues() const {
-    std::vector<double> Values(getType()->dof(), 0.0);
-    Values[id()] = 1.0;
+    std::vector<double> Values(El->dof(), 0.0);
+    Values[El->id()] = Val;
     return Values;
   }
-  void print(std::ostream &OS) const;
+  Type *getType() const override { return El; }
+  void print(std::ostream &OS) const override;
 };
 
 class GASpace {
   std::optional<std::string> Name;
   std::vector<double> Sign;
-
-  std::map<RankSet, std::unique_ptr<Type>> Types;
-  std::map<std::string, Type *, std::less<>> TypeAliases;
-  friend class Type;
-
-  std::vector<std::unique_ptr<Element>> Elements;
-  friend class Element;
+  std::map<std::string, RankedType *, std::less<>> Aliases;
+  std::map<IDSet, std::unique_ptr<RankedType>> RankedTypes;
+  std::map<IDSet, std::unique_ptr<Element>> Elements;
 
 public:
+  GASpace(const GASpace &) = delete;
+  GASpace &operator=(const GASpace &) = delete;
+
   GASpace(const std::vector<double> &Sign) : Sign(Sign) {}
   GASpace(const TSNodeWrapper &TSN);
+  RankedType *getRanked(const IDSet &Ranks);
+  RankedType *getRanked(const TSNodeWrapper &TSN);
+  Element *getElement(const std::vector<bool> &BVec);
+  Element *getElement(const IDSet &Indices);
+  ElementValue getElement(std::vector<ID> Indices);
+  ElementValue getElement(const TSNodeWrapper &TSN);
+  void setAlias(Type *Type, std::string_view Name);
   size_t dim() const { return Sign.size(); }
   void print(std::ostream &OS) const;
 };
@@ -80,5 +106,5 @@ public:
 } // namespace GA
 
 std::ostream &operator<<(std::ostream &OS, GA::Type *Type);
-std::ostream &operator<<(std::ostream &OS, GA::Element *Element);
+std::ostream &operator<<(std::ostream &OS, GA::ElementValue Val);
 std::ostream &operator<<(std::ostream &OS, GA::GASpace *GASpace);

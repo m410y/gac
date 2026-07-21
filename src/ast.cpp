@@ -9,10 +9,9 @@
 #include <string>
 #include <string_view>
 
-using Error = std::runtime_error;
-
-static Error catError(std::string_view Where, std::string_view Err) {
-  return Error(std::string(Where) + " -> " + std::string(Err));
+static std::runtime_error catError(std::string_view Where,
+                                   std::string_view Err) {
+  return std::runtime_error(std::string(Where) + " -> " + std::string(Err));
 }
 
 bool FuncProto::operator==(const FuncProto &Right) const {
@@ -82,7 +81,7 @@ FuncPtr ParseContext::createFunc(const FuncProto &Proto) {
 
 static GA::Type *getNodeType(const TSNodeWrapper &TSN, ParseContext &Context) {
   TSNodeWrapper TypeNode = TSN.field("type");
-  return GA::Type::get(Context.getSpace(), TypeNode);
+  return Context.getSpace().getRanked(TypeNode);
 }
 
 static std::vector<FuncProto::Param> getParamList(const TSNodeWrapper &TSN,
@@ -107,14 +106,14 @@ static std::vector<FuncProto::Param> getParamList(const TSNodeWrapper &TSN,
   NodePtr CLASS::createNode(const TSNodeWrapper &TSN, ParseContext &Context) { \
     try {                                                                      \
       BLOCK;                                                                   \
-    } catch (Error & e) {                                                      \
+    } catch (std::runtime_error & e) {                                         \
       throw catError(#CLASS, e.what());                                        \
     }                                                                          \
   }
 
 CREATENODE(Literal, {
-  GA::Element *El = GA::Element::create(Context.getSpace(), TSN);
-  return std::make_unique<Literal>(El);
+  GA::ElementValue Val = Context.getSpace().getElement(TSN);
+  return std::make_unique<Literal>(Val);
 })
 
 CREATENODE(Variable, {
@@ -206,7 +205,7 @@ static NodePtr trivialNode(const TSNodeWrapper &TSN, ParseContext &Context) {
 }
 
 static NodePtr parseError(const TSNodeWrapper &, ParseContext &) {
-  throw Error("Parser error");
+  throw std::runtime_error("Parser error");
 }
 
 #undef CREATENODE
@@ -317,7 +316,7 @@ inline static void printSeparated(std::ostream &OS, const T &Container,
   OS << Stop;
 }
 
-void Literal::print(std::ostream &OS) const { OS << El; }
+void Literal::print(std::ostream &OS) const { OS << Val; }
 
 void UnaryMinus::print(std::ostream &OS) const { OS << "-" << Expr.get(); };
 
@@ -422,7 +421,7 @@ static void containerCheck(const T &Cont, std::string_view Element) {
   void CLASS::verify() const {                                                 \
     try {                                                                      \
       BLOCK;                                                                   \
-    } catch (Error & e) {                                                      \
+    } catch (std::runtime_error & e) {                                         \
       throw catError(#CLASS, e.what());                                        \
     }                                                                          \
   }
@@ -439,8 +438,8 @@ VERIFY(FuncProto, {
 
 VERIFY(Node, containerCheck(children(), "Child"))
 VERIFY(Expression, nullCheck(getType(), "Type"))
-VERIFY(Literal, nullCheck(El, "Element"))
-VERIFY(Variable, nullCheck(Type, "Type"))
+VERIFY(Literal, nullCheck(getType(), "Type"))
+VERIFY(Variable, nullCheck(getType(), "Type"))
 VERIFY(CallExpression, {
   containerCheck(Args, "Argument");
   Proto->verify();
@@ -454,7 +453,7 @@ template <BinOp Op> void BinaryExpression<Op>::verify() const {
   try {
     nullCheck(Left, "Left");
     nullCheck(Right, "Right");
-  } catch (Error &e) {
+  } catch (std::runtime_error &e) {
     throw catError(std::string("BinaryExpression<") + OpStrings[Op] + ">",
                    e.what());
   }
@@ -479,45 +478,39 @@ VERIFY(SyntaxTree, containerCheck(Statements, "TopLevelStatement"))
 // Binary expression's type resolve
 //=============================================================================
 
-template <BinOp Op>
-GA::RankSet gaMulImpl(GA::RankTy left, GA::RankTy right, GA::RankTy dim);
+template <BinOp Op> GA::IDSet gaMulImpl(GA::ID left, GA::ID right, GA::ID dim);
 
-template <>
-GA::RankSet gaMulImpl<geom>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
-  GA::RankSet Ranks;
-  for (GA::RankTy rank = max - min; rank <= std::min(dim, max + min); rank += 2)
+template <> GA::IDSet gaMulImpl<geom>(GA::ID min, GA::ID max, GA::ID dim) {
+  GA::IDSet Ranks;
+  for (GA::ID rank = max - min; rank <= std::min(dim, max + min); rank += 2)
     Ranks.insert(rank);
   return Ranks;
 }
 
-template <>
-GA::RankSet gaMulImpl<dot>(GA::RankTy min, GA::RankTy max, GA::RankTy) {
-  return GA::RankSet{max - min};
+template <> GA::IDSet gaMulImpl<dot>(GA::ID min, GA::ID max, GA::ID) {
+  return GA::IDSet{max - min};
 }
 
-template <>
-GA::RankSet gaMulImpl<wedge>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
-  GA::RankTy sum = min + max;
-  return sum > dim ? GA::RankSet{} : GA::RankSet{sum};
+template <> GA::IDSet gaMulImpl<wedge>(GA::ID min, GA::ID max, GA::ID dim) {
+  GA::ID sum = min + max;
+  return sum > dim ? GA::IDSet{} : GA::IDSet{sum};
 }
 
-template <>
-GA::RankSet gaMulImpl<vee>(GA::RankTy min, GA::RankTy max, GA::RankTy dim) {
-  GA::RankTy sum = min + max;
-  return sum < dim ? GA::RankSet{} : GA::RankSet{dim - sum};
+template <> GA::IDSet gaMulImpl<vee>(GA::ID min, GA::ID max, GA::ID dim) {
+  GA::ID sum = min + max;
+  return sum < dim ? GA::IDSet{} : GA::IDSet{dim - sum};
 }
 
-template <>
-GA::RankSet gaMulImpl<scalar>(GA::RankTy min, GA::RankTy max, GA::RankTy) {
-  return min != max ? GA::RankSet{} : GA::RankSet{0};
+template <> GA::IDSet gaMulImpl<scalar>(GA::ID min, GA::ID max, GA::ID) {
+  return min != max ? GA::IDSet{} : GA::IDSet{0};
 }
 
 template <BinOp Op>
-static GA::RankSet binaryExprImpl(GA::RankSet &&Left, GA::RankSet &&Right,
-                                  GA::RankTy dim) {
-  GA::RankSet Ranks;
-  for (GA::RankTy left : Left)
-    for (GA::RankTy right : Right) {
+static GA::IDSet binaryExprImpl(GA::IDSet &&Left, GA::IDSet &&Right,
+                                GA::ID dim) {
+  GA::IDSet Ranks;
+  for (GA::ID left : Left)
+    for (GA::ID right : Right) {
       auto minmax = std::minmax(left, right);
       Ranks.merge(gaMulImpl<Op>(minmax.first, minmax.second, dim));
     }
@@ -526,8 +519,7 @@ static GA::RankSet binaryExprImpl(GA::RankSet &&Left, GA::RankSet &&Right,
 }
 
 template <>
-GA::RankSet binaryExprImpl<assign>(GA::RankSet &&Left, GA::RankSet &&Right,
-                                   GA::RankTy) {
+GA::IDSet binaryExprImpl<assign>(GA::IDSet &&Left, GA::IDSet &&Right, GA::ID) {
   if (Left != Right)
     throw std::runtime_error("Left and Right expressions have different types");
 
@@ -535,17 +527,16 @@ GA::RankSet binaryExprImpl<assign>(GA::RankSet &&Left, GA::RankSet &&Right,
 }
 
 template <>
-GA::RankSet binaryExprImpl<plus>(GA::RankSet &&Left, GA::RankSet &&Right,
-                                 GA::RankTy) {
-  GA::RankSet Ranks;
+GA::IDSet binaryExprImpl<plus>(GA::IDSet &&Left, GA::IDSet &&Right, GA::ID) {
+  GA::IDSet Ranks;
   Ranks.merge(Left);
   Ranks.merge(Right);
   return Ranks;
 }
 
 template <>
-GA::RankSet binaryExprImpl<minus>(GA::RankSet &&Left, GA::RankSet &&Right,
-                                  GA::RankTy dim) {
+GA::IDSet binaryExprImpl<minus>(GA::IDSet &&Left, GA::IDSet &&Right,
+                                GA::ID dim) {
   return binaryExprImpl<plus>(std::move(Left), std::move(Right), dim);
 }
 
@@ -557,9 +548,8 @@ template <BinOp Op> GA::Type *BinaryExpression<Op>::getType() const {
         "Left and right expressions from different spaces");
 
   GA::GASpace &Space = LType->getSpace();
-  GA::RankSet LRanks = LType->getRanks();
-  GA::RankSet RRanks = LType->getRanks();
-  return GA::Type::get(
-      Space,
+  GA::IDSet LRanks = LType->ranks();
+  GA::IDSet RRanks = LType->ranks();
+  return Space.getRanked(
       binaryExprImpl<Op>(std::move(LRanks), std::move(RRanks), Space.dim()));
 }

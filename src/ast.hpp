@@ -103,15 +103,13 @@ public:
 };
 
 class Literal : public Expression {
-  GA::Element *El;
+  GA::ElementValue Val;
 
 public:
-  explicit Literal(GA::Element *El) : El(El) {}
+  explicit Literal(GA::ElementValue Val) : Val(Val) {}
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
   std::vector<Node *> children() const override { return {}; }
-  GA::Type *getType() const override {
-    return GA::Type::get(El->getSpace(), {El->rank()});
-  }
+  GA::Type *getType() const override { return Val.getType(); }
   void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
