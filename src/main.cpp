@@ -1,6 +1,7 @@
 #include "ast.hpp"
 #include "codegen.hpp"
 #include "parser.hpp"
+
 #include <fstream>
 #include <iostream>
 #include <llvm/Support/raw_ostream.h>
@@ -9,8 +10,9 @@ int main(int argc, char *argv[]) {
   const char *filename = "test/test.ga";
 
   if (argc != 2) {
-    std::cout << "Usage: gac FILENAME" << std::endl;
+    // std::cout << "Usage: gac FILENAME" << std::endl;
     // return 0;
+    std::cout << "Default filename is " << filename << std::endl;
   } else {
     filename = argv[1];
   }
@@ -25,13 +27,15 @@ int main(int argc, char *argv[]) {
   File.close();
 
   SyntaxTree AST(Parser.getRoot());
+  AST.verify();
+
   std::cout << "---=== AST dump begin ===---" << std::endl;
   std::cout << AST << std::endl;
   std::cout << "---===  AST dump end  ===---" << std::endl;
 
   BuildContext Context(basename(filename));
   AST.codegen(Context);
-  auto Module = Context.Module.get();
+  llvm::Module *Module = Context.Module.get();
   Module->print(llvm::errs(), nullptr);
 
   return 0;

@@ -110,7 +110,17 @@ static std::ostream &operator<<(std::ostream &OS, const GA::Element &Element) {
   return OS;
 }
 
-#include "iohelper.hpp"
+template <typename T>
+inline static void printSeparated(std::ostream &OS, const T &Container,
+                                  std::string_view Start, std::string_view Sep,
+                                  std::string_view Stop) {
+  OS << Start;
+  bool begin = true;
+  for (const auto &Element : Container)
+    OS << (begin ? (begin = false, "") : Sep) << Element;
+
+  OS << Stop;
+}
 
 std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
   if (!Type)
@@ -157,6 +167,12 @@ void Element::print(std::ostream &OS) const {
 }
 
 void GASpace::print(std::ostream &OS) const {
+  if (Name.has_value()) {
+    OS << Name.value();
+    return;
+  }
+
+  OS << "metric";
   printSeparated(OS, Sign, "{", ",", "}");
 }
 

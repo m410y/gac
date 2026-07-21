@@ -2,6 +2,7 @@
 #include "algebra.hpp"
 #include "ast.hpp"
 
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h>
 #include <stdexcept>
@@ -23,8 +24,6 @@ Value *Variable::codegen(BuildContext &Context) const {
 
 Value *CallExpression::codegen(BuildContext &Context) const {
   Function *Callee = Context.Module->getFunction(Proto->Name);
-  if (Callee->arg_size() != Args.size())
-    throw std::runtime_error("wrong number of arguments");
 
   std::vector<Value *> Values;
   for (auto &arg : Args)
@@ -55,15 +54,12 @@ Value *VariableDeclaration::codegen(BuildContext &Context) const {
 
 Value *VariableDefinition::codegen(BuildContext &Context) const {
   Value *Val = Expr->codegen(Context);
-  Context.allocVar(Val, Var->getName());
+  Context.allocVar(Val, Decl->Var->getName());
   return nullptr;
 }
 
 Value *ReturnStatement::codegen(BuildContext &Context) const {
   Value *RetVal = Expr->codegen(Context);
-  if (!RetVal)
-    throw std::runtime_error("No value provided to return");
-
   return Context.Builder->CreateRet(RetVal);
 }
 
@@ -111,13 +107,15 @@ Value *FunctionDefinition::codegen(BuildContext &Context) const {
 // Syntax tree
 //=============================================================================
 
-void SyntaxTree::codegen(BuildContext &Context) const {
+Value *SyntaxTree::codegen(BuildContext &Context) const {
   for (const auto &Node : Statements)
     Node->codegen(Context);
+
+  return nullptr;
 }
 
 //=============================================================================
-// Context and IRCompiler
+// BuildContext
 //=============================================================================
 
 llvm::StructType *BuildContext::getType(GA::Type *GAType) {
@@ -132,6 +130,9 @@ llvm::StructType *BuildContext::getType(GA::Type *GAType) {
 }
 
 AllocaInst *BuildContext::allocVar(Value *Val, std::string_view Name) {
+  if (!Val)
+    throw std::runtime_error("Void allocate");
+
   AllocaInst *Alloca = Builder->CreateAlloca(Val->getType(), nullptr, Name);
   Builder->CreateStore(Val, Alloca);
   Vars.insert({std::string(Name), Alloca});

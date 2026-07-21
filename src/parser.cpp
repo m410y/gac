@@ -4,7 +4,7 @@
 #include <string_view>
 #include <tree_sitter/api.h>
 
-extern "C" const TSLanguage *tree_sitter_ga();
+extern "C" const TSLanguage *tree_sitter_ga(void);
 
 Parser::Parser() {
   ParserPtr.reset(ts_parser_new());

@@ -1,5 +1,6 @@
 using +++
 
 function foo ({1} a) -> {1}
-  return a
+  {1} b = a
+  return b
 end

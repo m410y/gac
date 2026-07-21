@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 class TSNodeWrapper;
 
 #include <map>
@@ -59,6 +60,7 @@ public:
 };
 
 class GASpace {
+  std::optional<std::string> Name;
   std::vector<double> Sign;
 
   std::map<RankSet, std::unique_ptr<Type>> Types;
@@ -69,24 +71,10 @@ class GASpace {
   friend class Element;
 
 public:
-  GASpace() = default;
-  GASpace(const GASpace &) = delete;
-  GASpace &operator=(const GASpace &) = delete;
-
-  GASpace(GASpace &&) = default;
-  GASpace &operator=(GASpace &&) = default;
-
   GASpace(const std::vector<double> &Sign) : Sign(Sign) {}
   GASpace(const TSNodeWrapper &TSN);
   size_t dim() const { return Sign.size(); }
   void print(std::ostream &OS) const;
-  std::vector<Type *> getTypes() const {
-    std::vector<Type *> Res;
-    for (const auto &[_, TypePtr] : Types)
-      Res.push_back(TypePtr.get());
-
-    return Res;
-  }
 };
 
 } // namespace GA

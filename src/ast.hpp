@@ -8,6 +8,39 @@ class BuildContext;
 #include <llvm/IR/Function.h>
 #include <map>
 
+class Node;
+typedef std::unique_ptr<Node> NodePtr;
+
+class Node {
+public:
+  virtual ~Node() = default;
+  virtual void verify() const = 0;
+  virtual std::vector<Node *> children() const = 0;
+  virtual void print(std::ostream &) const {};
+  virtual std::string dump() const;
+  virtual llvm::Value *codegen(BuildContext &) const { return nullptr; };
+};
+
+inline std::ostream &operator<<(std::ostream &OS, const Node &N) {
+  N.print(OS);
+  return OS;
+}
+
+inline std::ostream &operator<<(std::ostream &OS, Node *NPtr) {
+  if (NPtr)
+    NPtr->print(OS);
+
+  return OS;
+}
+
+class ParseContext;
+
+template <class T>
+std::unique_ptr<T> create(const TSNodeWrapper &TSN, ParseContext &Context);
+
+template <>
+NodePtr create<Node>(const TSNodeWrapper &TSN, ParseContext &Context);
+
 struct FuncProto {
   std::string Name;
   GA::Type *RetType;
@@ -15,6 +48,7 @@ struct FuncProto {
   std::vector<Param> Params;
   bool IsDefined;
 
+  void verify() const;
   void print(std::ostream &OS) const;
   bool operator==(const FuncProto &Right) const;
   bool operator!=(const FuncProto &Right) const { return !(*this == Right); }
@@ -57,22 +91,6 @@ public:
   }
 };
 
-class Node;
-typedef std::unique_ptr<Node> NodePtr;
-
-class Node {
-public:
-  virtual ~Node() = default;
-  virtual void print(std::ostream &OS) const = 0;
-  virtual llvm::Value *codegen(BuildContext &Context) const = 0;
-};
-
-template <class T>
-std::unique_ptr<T> create(const TSNodeWrapper &TSN, ParseContext &Context);
-
-template <>
-NodePtr create<Node>(const TSNodeWrapper &TSN, ParseContext &Context);
-
 //=============================================================================
 // Expressions
 //=============================================================================
@@ -82,6 +100,7 @@ typedef std::unique_ptr<Expression> ExprPtr;
 
 class Expression : public Node {
 public:
+  void verify() const override;
   virtual GA::Type *getType() const = 0;
 };
 
@@ -91,9 +110,11 @@ class Literal : public Expression {
 public:
   explicit Literal(GA::Element *El) : El(El) {}
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {}; }
   GA::Type *getType() const override {
     return GA::Type::get(El->getSpace(), {El->rank()});
   }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -106,6 +127,8 @@ public:
   explicit Variable(std::string_view Name, GA::Type *Type)
       : Name(Name), Type(Type) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {}; }
+  void verify() const override;
   GA::Type *getType() const override { return Type; }
   std::string_view getName() const { return Name; }
   void print(std::ostream &OS) const override { OS << Name; }
@@ -120,6 +143,14 @@ public:
   explicit CallExpression(FuncPtr Proto, std::vector<NodePtr> Args)
       : Proto(Proto), Args(std::move(Args)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  void verify() const override;
+  std::vector<Node *> children() const override {
+    std::vector<Node *> Childs;
+    for (const auto &Node : Args)
+      Childs.push_back(Node.get());
+
+    return Childs;
+  }
   GA::Type *getType() const override { return Proto->RetType; }
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
@@ -131,6 +162,8 @@ class UnaryMinus : public Expression {
 public:
   explicit UnaryMinus(ExprPtr Expr) : Expr(std::move(Expr)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {Expr.get()}; }
+  void verify() const override;
   GA::Type *getType() const override {
     return dynamic_cast<Expression *>(Expr.get())->getType();
   }
@@ -146,6 +179,8 @@ public:
   Projection(ExprPtr Expr, GA::Type *Type)
       : Expr(std::move(Expr)), Type(Type) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  void verify() const override;
+  std::vector<Node *> children() const override { return {Expr.get()}; }
   GA::Type *getType() const override { return Type; }
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
@@ -165,6 +200,10 @@ public:
     return std::make_unique<BinaryExpression<Op>>(std::move(Left),
                                                   std::move(Right));
   }
+  void verify() const override;
+  std::vector<Node *> children() const override {
+    return {Left.get(), Right.get()};
+  }
   GA::Type *getType() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &) const override { return nullptr; };
@@ -178,22 +217,29 @@ class Statement : public Node {};
 
 class VariableDeclaration : public Statement {
   std::unique_ptr<Variable> Var;
+  friend class VariableDefinition;
 
 public:
   VariableDeclaration(std::unique_ptr<Variable> Var) : Var(std::move(Var)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {Var.get()}; }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
 
 class VariableDefinition : public Statement {
-  std::unique_ptr<Variable> Var;
+  std::unique_ptr<VariableDeclaration> Decl;
   ExprPtr Expr;
 
 public:
-  VariableDefinition(std::unique_ptr<Variable> Var, ExprPtr Expr)
-      : Var(std::move(Var)), Expr(std::move(Expr)) {};
+  VariableDefinition(std::unique_ptr<VariableDeclaration> Decl, ExprPtr Expr)
+      : Decl(std::move(Decl)), Expr(std::move(Expr)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override {
+    return {Decl.get(), Expr.get()};
+  }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -204,6 +250,8 @@ class ReturnStatement : public Statement {
 public:
   ReturnStatement(ExprPtr Expr) : Expr(std::move(Expr)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {Expr.get()}; }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -219,6 +267,8 @@ public:
   UsingStatement(std::unique_ptr<GA::GASpace> Space)
       : Space(std::move(Space)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {}; }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -229,6 +279,8 @@ class FunctionDeclaration : public Statement {
 public:
   FunctionDeclaration(FuncPtr Proto) : Proto(Proto) {}
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  std::vector<Node *> children() const override { return {}; }
+  void verify() const override;
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -241,6 +293,14 @@ public:
   FunctionDefinition(FuncPtr Proto, std::vector<NodePtr> Body)
       : Proto(Proto), Body(std::move(Body)) {};
   static NodePtr createNode(const TSNodeWrapper &TSN, ParseContext &Context);
+  void verify() const override;
+  std::vector<Node *> children() const override {
+    std::vector<Node *> Childs;
+    for (const auto &Node : Body)
+      Childs.push_back(Node.get());
+
+    return Childs;
+  }
   void print(std::ostream &OS) const override;
   llvm::Value *codegen(BuildContext &Context) const override;
 };
@@ -249,11 +309,19 @@ public:
 // Syntax Tree
 //=============================================================================
 
-class SyntaxTree {
+class SyntaxTree : public Node {
   std::vector<NodePtr> Statements;
 
 public:
   SyntaxTree(const TSNodeWrapper &Root);
-  friend std::ostream &operator<<(std::ostream &OS, const SyntaxTree &Tree);
-  void codegen(BuildContext &Context) const;
+  virtual void verify() const override;
+  std::vector<Node *> children() const override {
+    std::vector<Node *> Childs;
+    for (const auto &Node : Statements)
+      Childs.push_back(Node.get());
+
+    return Childs;
+  }
+  void print(std::ostream &OS) const override;
+  llvm::Value *codegen(BuildContext &Context) const override;
 };
