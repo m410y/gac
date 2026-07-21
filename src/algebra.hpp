@@ -37,10 +37,10 @@ public:
 class Element {
   GASpace &Space;
   std::vector<bool> BVec;
-  double Val;
+  double Mul;
 
-  explicit Element(GASpace &Space, const std::vector<bool> &BVec, double Val)
-      : Space(Space), BVec(BVec), Val(Val) {};
+  explicit Element(GASpace &Space, const std::vector<bool> &BVec, double Mul)
+      : Space(Space), BVec(BVec), Mul(Mul) {};
 
 public:
   static Element *create(GASpace &Space, const std::vector<size_t> &Indices,
@@ -48,12 +48,12 @@ public:
   static Element *create(GASpace &Space, const TSNodeWrapper &TSN);
 
   GASpace &getSpace() const { return Space; }
-  Type *getType() const { return Type::get(Space, {rank()}); }
   RankTy rank() const;
+  Type *getType() const { return Type::get(Space, {rank()}); }
   size_t id() const;
   std::vector<double> getValues() const {
     std::vector<double> Values(getType()->dof(), 0.0);
-    Values[id()] = Val;
+    Values[id()] = 1.0;
     return Values;
   }
   void print(std::ostream &OS) const;

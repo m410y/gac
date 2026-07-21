@@ -133,7 +133,8 @@ AllocaInst *BuildContext::allocVar(Value *Val, std::string_view Name) {
   if (!Val)
     throw std::runtime_error("Void allocate");
 
-  AllocaInst *Alloca = Builder->CreateAlloca(Val->getType(), nullptr, Name);
+  AllocaInst *Alloca =
+      Builder->CreateAlloca(Val->getType(), nullptr, Name + "_alloc");
   Builder->CreateStore(Val, Alloca);
   Vars.insert({std::string(Name), Alloca});
   return Alloca;
@@ -141,7 +142,9 @@ AllocaInst *BuildContext::allocVar(Value *Val, std::string_view Name) {
 
 Value *BuildContext::loadVar(std::string Name) const {
   AllocaInst *Var = Vars.at(Name);
-  return Builder->CreateLoad(Var->getAllocatedType(), Var, Name.c_str());
+  LoadInst *Load =
+      Builder->CreateLoad(Var->getAllocatedType(), Var, Name + "_load");
+  return Load;
 }
 
 Value *BuildContext::getConst(GA::Element *Elem) {

@@ -154,7 +154,7 @@ std::string Type::getName() const {
 }
 
 void Element::print(std::ostream &OS) const {
-  OS << Val;
+  OS << Mul;
 
   if (rank() == 0)
     return;

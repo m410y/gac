@@ -48,17 +48,15 @@ struct FuncProto {
   std::vector<Param> Params;
   bool IsDefined;
 
+  FuncProto(std::string_view Name, GA::Type *RetType,
+            const std::vector<Param> &Params, bool IsDefined)
+      : Name(Name), RetType(RetType), Params(Params), IsDefined(IsDefined) {}
+
   void verify() const;
   void print(std::ostream &OS) const;
   bool operator==(const FuncProto &Right) const;
   bool operator!=(const FuncProto &Right) const { return !(*this == Right); }
   llvm::Function *codegen(BuildContext &Context);
-
-private:
-  FuncProto(std::string_view Name, GA::Type *RetType,
-            const std::vector<Param> &Params, bool IsDefined)
-      : Name(Name), RetType(RetType), Params(Params), IsDefined(IsDefined) {}
-  friend class ParseContext;
 };
 
 typedef std::shared_ptr<FuncProto> FuncPtr;

@@ -1,7 +1,7 @@
 all: run
 
 tsgen:
-	cd tree-sitter-ga; tree-sitter generate -o ../src
+	tree-sitter generate
 
 build: tsgen
 	cmake -S src -B build
@@ -12,3 +12,7 @@ run: build
 
 clean:
 	rm -rf build
+	rm src/parser.c
+	rm src/grammar.json
+	rm src/node-types.json
+	rm -rf src/tree_sitter

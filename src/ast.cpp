@@ -103,7 +103,7 @@ static std::vector<FuncProto::Param> getParamList(const TSNodeWrapper &TSN,
 // Static constructors
 //=============================================================================
 
-#define CREATENODE(CLASS, BLOCK, Args...)                                      \
+#define CREATENODE(CLASS, BLOCK)                                               \
   NodePtr CLASS::createNode(const TSNodeWrapper &TSN, ParseContext &Context) { \
     try {                                                                      \
       BLOCK;                                                                   \
