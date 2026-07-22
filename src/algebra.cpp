@@ -1,64 +1,17 @@
 #include "algebra.hpp"
 #include "ts_node_wrapper.hpp"
+#include <algorithm>
 #include <array>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 using namespace GA;
 
-constexpr size_t binomial(int n, int k) {
-  if (k < 0 || n < k)
-    return 0;
-
-  if (n < 2 || k == 0 || k == n)
-    return 1;
-
-  size_t res = 1;
-  for (int i = 1; i <= std::min(k, n - k); i++)
-    res = (res * (n - i + 1)) / i;
-
-  return res;
-}
-
-size_t Element::dof() const { return binomial(getSpace().dim(), rank()); }
-
-size_t RankedType::dof() const {
-  size_t res = 0;
-  size_t dim = getSpace().dim();
-  for (const ID &Rank : Ranks)
-    res += binomial(dim, Rank);
-
-  return res;
-}
-
-ID Element::rank() const {
-  ID acc = 0;
-  for (bool bit : BVec)
-    acc += bit;
-
-  return acc;
-}
-
-size_t Element::id() const {
-  size_t res = 0;
-  size_t k = rank();
-  size_t n = BVec.size();
-
-  for (size_t i = 0; i < n; i++) {
-    if (BVec[i]) {
-      k--;
-      if (k == 0)
-        break;
-
-    } else
-      res += binomial(n - i - 1, k - 1);
-  }
-  return res;
-}
-
-static IDSet bvec2indices(const std::vector<bool> BVec) {
+static IDSet bvec2ind(const BitVec BVec) {
   IDSet Indices;
   for (ID i = 0; i < BVec.size(); i++)
     if (BVec[i])
@@ -67,8 +20,8 @@ static IDSet bvec2indices(const std::vector<bool> BVec) {
   return Indices;
 }
 
-static std::vector<bool> indices2bvec(const IDSet &Indices, ID dim) {
-  std::vector<bool> BVec(dim, 0);
+static BitVec ind2bvec(const IDSet &Indices, ID dim) {
+  BitVec BVec(dim, 0);
   for (ID i : Indices) {
     if (i >= dim)
       throw std::out_of_range("Too large index for current space");
@@ -83,42 +36,45 @@ static std::vector<bool> indices2bvec(const IDSet &Indices, ID dim) {
 // Type factory
 //=============================================================================
 
-RankedType *GASpace::getRanked(const IDSet &Ranks) {
+RankedType *GASpace::getRanked(const IDSet &Ranks, std::string_view Name) {
+  if (Ranks.empty())
+    throw std::runtime_error("Ranks is empty");
+
   if (RankedTypes.count(Ranks))
     return RankedTypes.at(Ranks).get();
 
-  auto NewType = std::make_unique<RankedType>(*this, Ranks);
-  RankedType *Ptr = NewType.get();
-  RankedTypes.insert({Ranks, std::move(NewType)});
-  return Ptr;
+  const auto &[It, _] = RankedTypes.emplace(
+      Ranks, std::make_unique<RankedType>(*this, Ranks, Name));
+
+  RankedType *Ty = It->second.get();
+  if (Name.empty())
+    setAlias(getDefaultName(Ranks), Ty);
+
+  return Ty;
 }
 
-Element *GASpace::getElement(const std::vector<bool> &BVec) {
-  IDSet Indices = bvec2indices(BVec);
-
+Element *GASpace::getElement(const BitVec &BVec) {
+  IDSet Indices = bvec2ind(BVec);
   if (Elements.count(Indices))
     return Elements.at(Indices).get();
 
-  auto NewType = std::make_unique<Element>(*this, BVec);
-  Element *Ptr = NewType.get();
-  Elements.insert({Indices, std::move(NewType)});
-  return Ptr;
+  const auto &[It, _] =
+      Elements.emplace(Indices, std::make_unique<Element>(*this, BVec));
+  return It->second.get();
 }
 
 Element *GASpace::getElement(const IDSet &Indices) {
   if (Elements.count(Indices))
     return Elements.at(Indices).get();
 
-  std::vector<bool> BVec = indices2bvec(Indices, dim());
-
-  auto NewType = std::make_unique<Element>(*this, BVec);
-  Element *Ptr = NewType.get();
-  Elements.insert({Indices, std::move(NewType)});
-  return Ptr;
+  BitVec BVec = ind2bvec(Indices, dim());
+  const auto &[It, _] =
+      Elements.emplace(Indices, std::make_unique<Element>(*this, BVec));
+  return It->second.get();
 }
 
 ElementValue GASpace::getElement(std::vector<ID> Indices) {
-  std::vector<bool> BVec(dim(), 0);
+  BitVec BVec(dim(), 0);
   double Val = 1.0;
 
   for (ID i : Indices) {
@@ -148,13 +104,96 @@ ElementValue GASpace::getElement(std::vector<ID> Indices) {
 }
 
 //=============================================================================
+// Aliases
+//=============================================================================
+
+void GASpace::setAlias(std::string_view Alias, Type *Ty) {
+  auto It = Aliases.find(Alias);
+  if (It == Aliases.end()) {
+    auto [It, _] = Aliases.emplace(std::string(Alias), Ty);
+    Ty->setName(It->first);
+  } else {
+    It->second->setName("");
+    It->second = Ty;
+    Ty->setName(It->first);
+  }
+}
+
+// I like this stuff
+std::map<bool (*)(ID), const char *> DefaultNames = {
+    {[](ID rank) { return rank == 0; }, "scalar"},
+    {[](ID rank) { return rank == 1; }, "vector"},
+    {[](ID rank) { return rank == 2; }, "bivector"},
+    {[](ID rank) { return rank == 3; }, "trivector"},
+    {[](ID rank) { return rank % 2 == 0; }, "spinor"},
+    {[](ID) { return true; }, "mvector"}};
+
+std::string GASpace::getDefaultName(const IDSet &Ranks) {
+  for (auto &[Test, Name] : DefaultNames) {
+    IDSet Set;
+    for (ID rank = 0; rank <= dim(); rank++)
+      if (Test(rank))
+        Set.insert(rank);
+
+    if (Set == Ranks)
+      return Name;
+
+    Set.clear();
+    for (ID rank = 0; rank <= dim(); rank++)
+      if (Test(rank))
+        Set.insert(dim() - rank);
+
+    if (Set == Ranks)
+      return std::string("p") + Name;
+  }
+  return "";
+}
+
+// FIXME I hate this stuff
+static const std::map<std::string_view, ID, std::less<>> DefaultAliases = {
+    {"scalar", 0}, {"vector", 1}, {"bivector", 2}, {"trivector", 3}};
+
+RankedType *GASpace::getRanked(std::string_view Name) {
+  if (Name == "mvector") {
+    IDSet Ranks;
+    for (ID i = 0; i <= dim(); i++)
+      Ranks.insert(i);
+
+    return getRanked(Ranks, Name);
+  }
+
+  if (Name == "spinor") {
+    IDSet Ranks;
+    for (ID i = 0; i <= dim(); i += 2)
+      Ranks.insert(i);
+
+    return getRanked(Ranks, Name);
+  }
+
+  bool isPseudo = Name.front() == 'p';
+  std::string_view ReducedName = Name;
+  if (isPseudo)
+    ReducedName.remove_prefix(1);
+
+  auto It = DefaultAliases.find(ReducedName);
+  if (It == DefaultAliases.end())
+    return nullptr;
+
+  ID Rank = isPseudo ? (dim() - It->second) : It->second;
+  return getRanked({Rank}, Name);
+}
+
+//=============================================================================
 // Printing
 //=============================================================================
 
-std::string Type::getName() const {
-  std::ostringstream OSS;
-  print(OSS);
-  return OSS.str();
+std::string_view Type::getName() {
+  if (Name.empty()) {
+    std::ostringstream OSS;
+    print(OSS);
+    Space.setAlias(OSS.str(), this);
+  }
+  return Name;
 }
 
 template <typename T>
@@ -167,27 +206,6 @@ static void printSeparated(std::ostream &OS, const T &Container,
     OS << (begin ? (begin = false, "") : Sep) << Element;
 
   OS << Stop;
-}
-
-std::ostream &operator<<(std::ostream &OS, GA::Type *Type) {
-  if (!Type)
-    throw std::runtime_error("Type is nullptr");
-
-  Type->print(OS);
-  return OS;
-}
-
-std::ostream &operator<<(std::ostream &OS, GA::ElementValue Val) {
-  Val.print(OS);
-  return OS;
-}
-
-std::ostream &operator<<(std::ostream &OS, GA::GASpace *Space) {
-  if (!Space)
-    throw std::runtime_error("Space is nullptr");
-
-  Space->print(OS);
-  return OS;
 }
 
 void Element::print(std::ostream &OS) const {
@@ -215,13 +233,11 @@ void ElementValue::print(std::ostream &OS) const {
 }
 
 void GASpace::print(std::ostream &OS) const {
-  if (Name.has_value()) {
-    OS << Name.value();
-    return;
-  }
-
-  OS << "metric";
-  printSeparated(OS, Sign, "{", ",", "}");
+  if (Name.empty()) {
+    OS << "metric";
+    printSeparated(OS, Sign, "{", ",", "}");
+  } else
+    OS << Name;
 }
 
 //=============================================================================
@@ -232,9 +248,9 @@ RankedType *GASpace::getRanked(const TSNodeWrapper &TSN) {
   if (TSN.type() == "int_literal")
     return getRanked({TSN.parse<ID>()});
 
-  auto AliasIt = Aliases.find(TSN.str());
-  if (AliasIt != Aliases.end())
-    return AliasIt->second;
+  RankedType *FromStr = getRanked(TSN.str());
+  if (FromStr)
+    return FromStr;
 
   IDSet Ranks;
   for (const auto &Child : TSN.children())

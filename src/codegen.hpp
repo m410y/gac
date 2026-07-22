@@ -1,5 +1,6 @@
 #pragma once
 
+#include <llvm/IR/Constant.h>
 namespace GA {
 class Type;
 class ElementValue;
@@ -19,18 +20,19 @@ class BuildContext {
 public:
   llvm::LLVMContext LLVM;
   llvm::Type *Real;
+  llvm::Type *Int;
   std::unique_ptr<llvm::Module> Module;
   std::unique_ptr<llvm::IRBuilder<>> Builder;
 
   BuildContext(std::string_view ModuleName)
       : LLVM(), Real(llvm::Type::getDoubleTy(LLVM)),
+        Int(llvm::Type::getInt64Ty(LLVM)),
         Module(std::make_unique<llvm::Module>(ModuleName, LLVM)),
         Builder(std::make_unique<llvm::IRBuilder<>>(LLVM)) {}
 
   llvm::StructType *getType(GA::Type *Type);
   llvm::AllocaInst *allocVar(llvm::Value *Val, std::string_view Name);
-  llvm::LoadInst *loadVar(std::string Name) const;
-  llvm::Value *getConst(GA::ElementValue Val);
-  llvm::Value *getZero(GA::Type *Type);
-  llvm::Value *callBuiltin(llvm::Value *Val, std::string_view Name);
+  llvm::LoadInst *loadVar(std::string_view Name) const;
+  llvm::Constant *getConst(GA::ElementValue Val);
+  llvm::Constant *getZero(GA::Type *Type);
 };

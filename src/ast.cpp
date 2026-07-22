@@ -214,8 +214,8 @@ static NodePtr parseError(const TSNodeWrapper &, ParseContext &) {
 // Syntax tree construction
 //=============================================================================
 
-static std::map<std::string, NodePtr (*)(const TSNodeWrapper &, ParseContext &),
-                std::less<>>
+static const std::map<std::string_view,
+                      NodePtr (*)(const TSNodeWrapper &, ParseContext &)>
     Constructors = {
         {"ERROR", parseError},
         {"MISSING", parseError},
@@ -328,7 +328,7 @@ void CallExpression::print(std::ostream &OS) const {
   printSeparated(OS, Args, "(", ", ", ")");
 }
 
-static std::map<BinOp, const char *> OpStrings = {
+static const std::map<BinOp, const char *> OpStrings = {
     {assign, "="}, {plus, "+"}, {minus, "-"}, {dot, "."},
     {wedge, "w"},  {vee, "v"},  {scalar, "*"}};
 
@@ -336,7 +336,7 @@ template <BinOp Op> void BinaryExpression<Op>::print(std::ostream &OS) const {
   OS << '(' << Left.get() << ' ';
 
   if (OpStrings.count(Op))
-    OS << OpStrings[Op] << ' ';
+    OS << OpStrings.at(Op) << ' ';
   else if (Op == geom)
     OS << ' ';
   else
@@ -438,6 +438,7 @@ VERIFY(FuncProto, {
 
 VERIFY(Node, containerCheck(children(), "Child"))
 VERIFY(Expression, nullCheck(getType(), "Type"))
+// FIXME how to DRY ???
 VERIFY(Literal, nullCheck(getType(), "Type"))
 VERIFY(Variable, nullCheck(getType(), "Type"))
 VERIFY(CallExpression, {
@@ -454,7 +455,7 @@ template <BinOp Op> void BinaryExpression<Op>::verify() const {
     nullCheck(Left, "Left");
     nullCheck(Right, "Right");
   } catch (std::runtime_error &e) {
-    throw catError(std::string("BinaryExpression<") + OpStrings[Op] + ">",
+    throw catError(std::string("BinaryExpression<") + OpStrings.at(Op) + ">",
                    e.what());
   }
 }

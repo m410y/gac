@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
 int main(int argc, char *argv[]) {
@@ -37,6 +38,7 @@ int main(int argc, char *argv[]) {
   AST.codegen(Context);
   llvm::Module *Module = Context.Module.get();
   Module->print(llvm::errs(), nullptr);
+  llvm::verifyModule(*Module, &llvm::errs());
 
   return 0;
 }

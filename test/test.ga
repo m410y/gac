@@ -1,6 +1,6 @@
 using +++
 
-function foo ({1} a) -> {1}
-  {1} b = a
+function foo (mvector a) -> vector
+  vector b = <-a> vector
   return b
 end
