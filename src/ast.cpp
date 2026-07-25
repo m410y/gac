@@ -364,7 +364,7 @@ void UsingStatement::print(std::ostream &OS) const {
   if (!Space)
     throw std::runtime_error("Attemt to dereference nullptr GASpace");
 
-  OS << "using " << Space.get() << "\n";
+  OS << "using " << *Space << "\n";
 }
 
 void FuncProto::print(std::ostream &OS) const {
@@ -548,7 +548,7 @@ template <BinOp Op> GA::Type *BinaryExpression<Op>::getType() const {
     throw std::runtime_error(
         "Left and right expressions from different spaces");
 
-  GA::GASpace &Space = LType->getSpace();
+  GA::Space &Space = LType->getSpace();
   GA::IDSet LRanks = LType->ranks();
   GA::IDSet RRanks = LType->ranks();
   return Space.getRanked(
