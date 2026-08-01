@@ -7,6 +7,8 @@
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
 
+// All visible names must be less then 15 chars long
+// to *always* enable C++ std::string SSO 
 export default grammar({
   name: "ga",
 
@@ -29,18 +31,19 @@ export default grammar({
     // top-level statements
 
     top_level_statement: $ => choice(
-      $.using_statement,
-      $.function_definition,
+      $.metric_statement,
+      $.function_def,
     ),
 
-    using_statement: $ => seq(
-      "using",
+    metric_statement: $ => seq(
+      "metric",
       choice(
         $.simple_metric,
         $.compact_metric,
         $.general_metric,
       ),
-      $.terminator
+      $.identifier,
+      $.terminator,
     ),
 
     simple_metric: _ => /[\+\-0]+/,
@@ -50,33 +53,32 @@ export default grammar({
     function_definition: $ => seq(
       "function",
       field("name", $.identifier),
-      field("params", $.parameter_list),
+      field("args", $.parameter_list),
       "->",
       field("type", $.type),
       field("body", $.block),
     ),
 
-    parameter_list: $ => seq('(', sep($.variable_declaration), ')'),
+    parameter_list: $ => seq('(', sep($.variable_decl), ')'),
 
     block: $ => seq(
       sep($.terminator, choice(
         $.expression,
-        $.variable_declaration,
-        $.variable_definition,
-        $.return_statement,
+        $.variable_def,
+        $.ret_statement,
       )),
       "end"
     ),
 
     // statements
 
-    variable_definition: $ => seq(
-      field("decl", $.variable_declaration),
+    variable_def: $ => seq(
+      field("decl", $.variable_decl),
       '=',
       field("expr", $.expression),
     ),
 
-    variable_declaration: $ => seq(
+    variable_decl: $ => seq(
       field("type", $.type),
       field("name", $.identifier),
     ),
@@ -88,22 +90,22 @@ export default grammar({
     expression: $ => choice(
       $.literal,
       $.identifier,
-      $.parenthesized_expression,
-      $.call_expression,
+      $.par_expr,
+      $.call_expr,
       $.unary_plus,
       $.unary_minus,
       $.projection,
-      $.binary_expression,
+      $.binary_expr,
     ),
 
     call_expression: $ => prec(50, seq(
       field("name", $.identifier),
-      field("args", $.argument_list),
+      field("args", $.args_list),
     )),
 
-    argument_list: $ => seq(token.immediate('('), sep($.expression), ')'),
+    args_list: $ => seq(token.immediate('('), sep($.expression), ')'),
 
-    parenthesized_expression: $ => seq('(', $.expression, ')'),
+    par_expr: $ => seq('(', $.expression, ')'),
 
     projection: $ => prec.right(
       seq('<', $.expression, '>', optional(field("type", $.type)))
@@ -120,7 +122,7 @@ export default grammar({
       $.assignment,
       $.binary_plus,
       $.binary_minus,
-      $.geometric_product,
+      $.geom_product,
       $.dot_product,
       $.wedge_product,
       $.vee_product,
@@ -133,7 +135,7 @@ export default grammar({
       prec.left(20, seq($.expression, '+', $.expression)),
     binary_minus: $ =>
       prec.left(20, seq($.expression, '-', $.expression)),
-    geometric_product: $ =>
+    geom_product: $ =>
       prec.left(30, seq($.expression, $.expression)),
     dot_product: $ =>
       prec.left(35, seq($.expression, '.', $.expression)),

@@ -3,4 +3,4 @@
 * tree-sitter
 
 ## Building
-Run `make` in repo root directory. Requires `cmake`.
+Run `make` in repo root directory.
