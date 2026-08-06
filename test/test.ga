@@ -1,6 +1,1 @@
-using +++
-
-function foo (vector a) -> vector
-  vector b = -a
-  return b
-end
+a + b - c a
