@@ -5,9 +5,6 @@
  */
 
 // <reference types="tree-sitter-cli/dsl" />
-
-// All visible names must be less then 15 chars long
-// to *always* enable C++ std::string SSO 
 export default grammar({
   name: "ga",
 
@@ -16,11 +13,25 @@ export default grammar({
   ],
 
   supertypes: $ => [
+    $.statement,
     $.expression,
   ],
 
   rules: {
-    source_file: $ => $.expression,
+    source_file: $ => repeat($.function_def),
+
+    function_def: $ => seq($.function_decl, $.block, $.terminator),
+
+    function_decl: $ => seq("function", $.identifier, '(', sep($.identifier), ')'),
+
+    block: $ => seq(repeat(seq($.statement, $.terminator)), "end"),
+
+    statement: $ => choice(
+      $.ret_statement,
+      $.expression,
+    ),
+
+    ret_statement: $ => seq("return", $.expression),
 
     expression: $ => choice(
       $.identifier,

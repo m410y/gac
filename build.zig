@@ -10,7 +10,6 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
         }),
     });
 
@@ -18,9 +17,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
     gac.root_module.addImport("tree-sitter", ts.module("tree_sitter"));
     gac.root_module.addCSourceFile(.{ .file = b.path("src/parser.c") });
+
+    gac.root_module.linkSystemLibrary("LLVM", .{});
 
     b.installArtifact(gac);
 }

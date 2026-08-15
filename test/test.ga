@@ -1,1 +1,3 @@
-a + b - c a
+function cringe (a, b)
+  return a a + b b
+end
