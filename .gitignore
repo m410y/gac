@@ -1,4 +1,8 @@
-build
+zig-out
+zig-pkg
+
+.zig-cache
+.git
 
 src/parser.c
 src/grammar.json

@@ -1,6 +1,3 @@
-using +++
-
-function foo (vector a) -> vector
-  vector b = -a
-  return b
+function cringe (a, b)
+  return a a + b b
 end
