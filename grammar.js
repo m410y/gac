@@ -22,7 +22,7 @@ export default grammar({
 
     function_def: $ => seq($.function_decl, $.block, $.terminator),
 
-    function_decl: $ => seq("function", $.identifier, '(', sep($.identifier), ')'),
+    function_decl: $ => seq("function", $.identifier, '(', sep($.var_decl), ')', "->", $.typename),
 
     block: $ => seq(repeat(seq($.statement, $.terminator)), "end"),
 
@@ -34,7 +34,7 @@ export default grammar({
     ret_statement: $ => seq("return", $.expression),
 
     expression: $ => choice(
-      $.identifier,
+      $.variable,
       $.binary_plus,
       $.binary_minus,
       $.geom_product,
@@ -46,6 +46,10 @@ export default grammar({
       prec.left(20, seq($.expression, '-', $.expression)),
     geom_product: $ =>
       prec.left(30, seq($.expression, $.expression)),
+
+    var_decl: $ => seq($.typename, $.identifier),
+    typename: $ => $.identifier,
+    variable: $ => $.identifier,
 
     identifier: _ => choice(
       /[\w&&[^wveI]]/,
